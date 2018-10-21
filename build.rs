@@ -17,7 +17,7 @@ pub fn main() {
 
     let bindings = bindgen::Builder::default()
         .clang_arg("-Ilib/minisat-c-bindings")
-        .header("wrapper.hpp")
+        .header("wrapper.h")
         .generate()
         .expect("Could not create bindings to library");
 

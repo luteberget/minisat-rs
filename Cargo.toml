@@ -1,6 +1,6 @@
 [package]
 name = "minisat"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Bjørnar Luteberget <luteberget@gmail.com>"]
 build = "build.rs"
 description = "MiniSat Rust interface. Solves a boolean satisfiability problem given in conjunctive normal form."
