@@ -8,7 +8,7 @@ readme="README.md"
 documentation="https://docs.rs/minisat"
 repository="https://github.com/luteberget/minisat-rs/"
 categories=["sat","logic"]
-license="mit"
+license="MIT"
 
 [dependencies]
 [build-dependencies]
