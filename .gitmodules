@@ -1,0 +1,8 @@
+[submodule "lib/minisat-c-bindings"]
+	path = lib/minisat-c-bindings
+	url = https://github.com/niklasso/minisat-c-bindings.git
+	branch = master
+[submodule "lib/minisat"]
+	path = lib/minisat
+	url = https://github.com/niklasso/minisat.git
+	branch = master
