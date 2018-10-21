@@ -1,39 +1,62 @@
+//! SAT solver using [MiniSat](http://minisat.se).
+//! Solves a boolean satisfiability problem given in conjunctive normal form.
+
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+pub mod sys {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+use sys::*;
 
 use std::convert::From;
 use std::ops::Not;
 
+/// The SAT problem instance (also called solver instance).
 pub struct Sat {
     ptr: *mut minisat_solver_t,
 }
 
+/// Boolean value, either a constant (`Value::Bool`) or
+/// a literal (`Value::Lit`).  Create values by creating new 
+/// variables (`Sat::new_lit()`) or from a constant boolean (`true.into()`).
 #[derive(Debug, Copy, Clone)]
-pub enum Lit {
-  Lit(*mut minisat_solver_t, minisat_Lit),
-  Bool(bool)
+pub enum Value {
+  Bool(bool),
+  Lit(Lit),
 }
 
-impl From<bool> for Lit {
+/// A literal is a boolean variable or its negation.
+#[derive(Debug, Copy, Clone)]
+pub struct Lit(*mut minisat_solver_t, minisat_Lit);
+
+impl From<bool> for Value {
     fn from(item :bool) -> Self {
-        Lit::Bool(item)
+        Value::Bool(item)
+    }
+}
+
+impl Not for Value {
+    type Output = Value;
+    fn not(self) -> Value {
+        match self {
+            Value::Bool(b) => Value::Bool(!b),
+            Value::Lit(l) => Value::Lit(!l),
+        }
     }
 }
 
 impl Not for Lit {
     type Output = Lit;
     fn not(self) -> Lit {
-        match self {
-            Lit::Bool(b) => Lit::Bool(!b),
-            Lit::Lit(s,l) => Lit::Lit(s, unsafe { minisat_negate(l) })
-        }
+        Lit(self.0, unsafe { minisat_negate(self.1) })
     }
 }
 
 impl Sat {
+    /// Create a new SAT instance.
     pub fn new() -> Self {
         let ptr = unsafe { minisat_new() };
 
@@ -43,17 +66,19 @@ impl Sat {
         Sat { ptr }
     }
 
-    pub fn new_lit(&mut self) -> Lit {
-        Lit::Lit(self.ptr, unsafe { minisat_newLit(self.ptr) })
+    /// Create a new variable.
+    pub fn new_lit(&mut self) -> Value {
+        Value::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
     }
 
-    pub fn add_clause(&mut self, lits :&[Lit]) {
+    /// Add a clause to the SAT instance (assert the disjunction of the given literals).
+    pub fn add_clause(&mut self, lits :&[Value]) {
         unsafe { minisat_addClause_begin(self.ptr) };
         for lit in lits {
             match lit {
-                Lit::Bool(true) => return,
-                Lit::Bool(false) => {}, 
-                Lit::Lit(ptr, l) => {
+                Value::Bool(true) => return,
+                Value::Bool(false) => {}, 
+                Value::Lit(Lit(ptr, l)) => {
                     assert_eq!(*ptr, self.ptr);
                     unsafe { minisat_addClause_addLit(*ptr, *l); }
                 }
@@ -62,17 +87,28 @@ impl Sat {
         unsafe { minisat_addClause_commit(self.ptr) };
     }
 
+    /// Solve the SAT instance, returning a solution (`Model`) if the 
+    /// instance is satisfiable, or returning an `Err(())` if the problem
+    /// is unsatisfiable.
     pub fn solve<'a>(&'a mut self) -> Result<Model<'a>, ()> {
         self.solve_under_assumptions(&[])
     }
 
-    pub fn solve_under_assumptions<'a>(&'a mut self, lits :&[Lit]) -> Result<Model<'a>, ()> {
+    /// Solve the SAT instance under given assumptions, returning a solution (`Model`) if the 
+    /// instance is satisfiable, or returning an `Err(())` if the problem
+    /// is unsatisfiable.
+    ///
+    /// The conjunction of the given literals are temporarily added to the SAT instance,
+    /// so the result is the same as if each literal was added as a clause, but 
+    /// the solver object can be re-used afterwards and does then not contain these assumptions.
+    /// This interface can be used to build SAT instances incrementally.
+    pub fn solve_under_assumptions<'a>(&'a mut self, lits :&[Value]) -> Result<Model<'a>, ()> {
         unsafe { minisat_solve_begin(self.ptr); }
         for lit in lits {
             match lit {
-                Lit::Bool(false) => return Err(()),
-                Lit::Bool(true) => {},
-                Lit::Lit(ptr, l) => {
+                Value::Bool(false) => return Err(()),
+                Value::Bool(true) => {},
+                Value::Lit(Lit(ptr, l)) => {
                     assert_eq!(*ptr, self.ptr);
                     unsafe { minisat_solve_addLit(*ptr, *l); }
                 }
@@ -93,13 +129,18 @@ impl Drop for Sat {
     }
 }
 
+/// A model, in the logic sense, contains and assignments to each variable
+/// in the SAT instance which satisfies the clauses added to the problem.
 pub struct Model<'a>(&'a mut Sat);
 
 impl<'a> Model<'a> {
-    pub fn get(&self, p :&Lit) -> Option<bool> {
+    /// Get the value of a literal. The returned value is either a boolean value,
+    /// or the `None` value, which can be given if the problem is satisfied independently 
+    /// of this value (however there are no guarantees that `None` will be returned).
+    pub fn get(&self, p :&Value) -> Option<bool> {
         match p {
-            Lit::Bool(b) => Some(*b),
-            Lit::Lit(s,l) => {
+            Value::Bool(b) => Some(*b),
+            Value::Lit(Lit(s,l)) => {
                 assert_eq!(self.0.ptr, *s);
                 let lbool = unsafe { minisat_modelValue_Lit(*s,*l) };
                 if unsafe { minisat_get_l_True() } == lbool {
