@@ -7,7 +7,7 @@ description = "MiniSat Rust interface. Solves a boolean satisfiability problem g
 readme="README.md"
 documentation="https://docs.rs/minisat"
 repository="https://github.com/luteberget/minisat-rs/"
-categories=["sat","logic"]
+categories=["api-bindings","science","simulations"]
 license="MIT"
 
 [dependencies]
