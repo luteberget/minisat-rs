@@ -26,6 +26,13 @@
 //! This crate compiles the MiniSat sources directly and binds through
 //! the [minisat-c-bindings](https://github.com/niklasso/minisat-c-bindings) interface.
 //! The low-level C bindings are available through the [`sys`](sys/index.html) module. 
+//! 
+//! High-level features ported from [satplus](https://github.com/koengit/satplus):
+//!  * Traits for representing non-boolean values in the SAT problem:
+//!     * Value trait (`ModelValue`)
+//!     * Equality trait (`ModelEq`)
+//!     * Ordering trait (`ModelOrd`)
+//!  * Symbolic values
 //!
 //! Graph coloring example:
 //! ```rust
