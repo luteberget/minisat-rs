@@ -32,7 +32,8 @@
 //!     * Value trait (`ModelValue`)
 //!     * Equality trait (`ModelEq`)
 //!     * Ordering trait (`ModelOrd`)
-//!  * Symbolic values
+//!  * Symbolic values (`Symbolic<V>`)
+//!  * Non-negative integers with unary encoding (`Unary`)
 //!
 //! Graph coloring example:
 //! ```rust
@@ -57,6 +58,28 @@
 //!             for i in 0..n_nodes {
 //!                 println!("Node {}: {:?}", i, model.value(&colors[i]));
 //!             }
+//!         },
+//!         Err(()) => {
+//!             println!("No solution.");
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! Factorization example:
+//! ```rust
+//! extern crate minisat;
+//!
+//! fn main() {
+//!     let mut sat = minisat::Sat::new();
+//!     let a = sat.new_unary(64);
+//!     let b = sat.new_unary(64);
+//!     let c = a.mul(&mut sat, &b);
+//!     sat.equal(&c, &minisat::Unary::constant(529));
+//!
+//!     match sat.solve() {
+//!         Ok(model) => {
+//!             println!("{}*{}=529", model.value(&a), model.value(&b));
 //!         },
 //!         Err(()) => {
 //!             println!("No solution.");
@@ -156,42 +179,160 @@ impl<T:Eq> Symbolic<T> {
     }
 }
 
+#[derive(Debug,Clone)]
 pub struct Unary(Vec<Bool>);
 
 impl Unary {
-    //pub fn new(solver :&mut Sat, size :usize) -> Self {
-
-    //}
-
-    pub fn zero() -> Self {
-        Unary(Vec::new())
-    }
-
-    pub fn number(n :usize) -> Self {
+    pub fn constant(n :usize) -> Self {
         Unary(vec![true.into(); n])
     }
 
-    pub fn succ(&self) -> Self {
-        let mut v = self.0.clone();
-        v.insert(0, true.into());
-        Unary(v)
+    pub fn succ(&self) -> Unary {
+        Unary(once(Bool::Const(true)).chain(self.0.iter().cloned()).collect())
     }
 
-    pub fn pred(&self) -> Self {
-        if self.0.len() > 0 {
-            let mut v = self.0.clone();
-            v.remove(0);
-            Unary(v)
+    pub fn pred(&self) -> Unary {
+        if self.0.len() == 0 {
+            Unary::constant(0)
         } else {
-            Self::zero()
+            Unary(self.0.iter().cloned().skip(1).collect())
         }
     }
 
-    pub fn reverse(&self) -> Self {
+    pub fn invert(&self) -> Self {
         let mut v = self.0.clone();
         v.reverse();
         for x in &mut v { *x = !*x; }
         Unary(v)
+    }
+
+    pub fn gt_const(&self, x :isize) -> Bool {
+        if x < 0 {
+            Bool::Const(true)
+        } else if x > self.0.len() as isize {
+            Bool::Const(false)
+        } else {
+            (self.0)[x as usize]
+        }
+    }
+
+    pub fn lt_const(&self, x :isize) -> Bool {
+        !(self.gte_const(x))
+    }
+
+    pub fn lte_const(&self, x :isize) -> Bool {
+        self.lt_const(x+1)
+    }
+
+    pub fn gte_const(&self, x :isize) -> Bool {
+        self.gt_const(x-1)
+    }
+
+    pub fn mul_const(&self, c :usize) -> Unary {
+        use std::iter::repeat;
+        Unary(self.0.iter().flat_map(|i| repeat(i).take(c)).cloned().collect())
+    }
+
+    pub fn div_const(&self, c :usize) -> Unary {
+        assert!(c > 0);
+        Unary(self.0.chunks(c).flat_map(|x| x.get(c-1)).cloned().collect())
+    }
+
+    pub fn mod_const(&self, c :usize) -> Unary {
+        unimplemented!()
+    }
+
+    pub fn bound(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn add_const(&self, c :usize) -> Unary {
+        use std::iter::repeat;
+        Unary(repeat(Bool::Const(true)).take(c).chain(self.0.iter().cloned()).collect())
+    }
+
+    pub fn add(&self, sat :&mut Sat, other :&Unary) -> Unary {
+        self.add_truncate(sat, other, std::usize::MAX)
+    }
+
+    pub fn truncate(&self, bound :usize) -> Unary {
+        Unary(self.0.iter().take(bound).cloned().collect())
+    }
+
+    pub fn add_truncate(&self, sat :&mut Sat, other :&Unary, bound :usize) -> Unary {
+        Unary(Self::merge(sat, bound, self.0.clone(), other.0.clone()))
+    }
+
+    fn merge(sat :&mut Sat, bound :usize, mut a :Vec<Bool>, mut b :Vec<Bool>) -> Vec<Bool> {
+        use itertools::Itertools;
+        if a.len() == 0 {
+            b.truncate(bound);
+            b
+        } else if b.len() == 0 {
+            a.truncate(bound);
+            a
+        } else if bound == 0 && a.len() == 1 && b.len() == 1 {
+            Vec::new()
+        } else if bound == 1 && a.len() == 1 && b.len() == 1 {
+            let fst = sat.or_literal(once(a[0]).chain(once(b[0])));
+            vec![fst]
+        } else if bound > 1 && a.len() == 1 && b.len() == 1 {
+            let fst = sat.or_literal( once(a[0]).chain(once(b[0])));
+            let snd = sat.and_literal(once(a[0]).chain(once(b[0])));
+            vec![fst,snd]
+        } else {
+            while a.len() < b.len()/2*2 { a.push(Bool::Const(false)); }
+            while b.len() < a.len()/2*2 { b.push(Bool::Const(false)); }
+            let firsts  = Self::merge(sat, bound, a.iter().cloned().step_by(2).collect(),
+                                                  b.iter().cloned().step_by(2).collect());
+            let seconds = Self::merge(sat, bound, a.iter().cloned().skip(1).step_by(2).collect(),
+                                                  b.iter().cloned().skip(1).step_by(2).collect());
+            let interleaved = firsts.into_iter().interleave(seconds.into_iter()).collect::<Vec<_>>();
+
+            let mut v = Vec::new();
+            v.push(interleaved[0]);
+            for x in interleaved[1..].chunks(2) {
+                if let [a,b] = x {
+                    v.extend(Self::merge(sat, bound, vec![*a], vec![*b]));
+                }
+            }
+            v.push(*interleaved.last().unwrap());
+            v.truncate(bound);
+            v
+        }
+    }
+
+    pub fn sum(sat :&mut Sat, xs :Vec<Unary>) -> Unary {
+        Self::sum_truncate(sat, xs, std::usize::MAX)
+    }
+
+    pub fn sum_truncate(sat :&mut Sat, mut xs :Vec<Unary>, bound :usize) -> Unary {
+        if xs.len() == 0 {
+            Unary::constant(0)
+        } else if xs.len() == 1 {
+            xs[0].clone()
+        } else {
+            xs.sort_by_key(|x| -(x.0.len() as isize));
+            let a = xs.pop().unwrap();
+            let b = xs.pop().unwrap();
+            xs.push(a.add_truncate(sat, &b, bound));
+            Self::sum_truncate(sat, xs, bound)
+        }
+    }
+
+    pub fn mul_digit(&self, sat :&mut Sat, other :Bool) -> Unary {
+        Unary(self.0.iter().cloned().map(|x| 
+                 sat.and_literal(once(x).chain(once(other)))).collect())
+    }
+
+    pub fn mul(&self, sat :&mut Sat, other :&Unary) -> Unary {
+        if self.bound() > other.bound() {
+            other.mul(sat,self)
+        } else {
+            let terms = self.0.iter().cloned().map(|x|
+                            other.mul_digit(sat, x)).collect();
+            Unary::sum(sat, terms)
+        }
     }
 }
 
@@ -226,6 +367,23 @@ impl Sat {
             self.assert_exactly_one(lits.iter().cloned());
             Symbolic(lits.into_iter().zip(xs.into_iter()).collect())
         }
+    }
+
+    pub fn new_unary(&mut self, size :usize) -> Unary {
+        let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
+        for i in (1..size) {
+            self.add_clause(once(!lits[i]).chain(once(lits[i-1])));
+        }
+        Unary(lits)
+    }
+
+    pub fn bool_to_unary(&mut self, digit :Bool) -> Unary {
+        Unary(vec![digit])
+    }
+
+    pub fn count<I: IntoIterator<Item = Bool>>(&mut self, lits :I) -> Unary {
+        let lits = lits.into_iter().map(|x| self.bool_to_unary(x)).collect();
+        Unary::sum(self, lits)
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
@@ -339,6 +497,10 @@ impl Sat {
         self.or_literal(once(!a).chain(once(b)))
     }
 
+    pub fn equiv(&mut self, a :Bool, b :Bool) -> Bool {
+        self.xor_literal(once(!a).chain(once(b)))
+    }
+
     pub fn assert_parity<I:IntoIterator<Item = Bool>>(&mut self, xs :I, x :bool) {
         self.assert_parity_or(empty(), xs, x);
     }
@@ -414,6 +576,39 @@ impl Sat {
     pub fn not_equal<T:ModelEq>(&mut self, a :&T, b :&T) {
         ModelEq::assert_not_equal_or(self, Vec::new(), a, b);
     }
+
+    pub fn greater_than<T:ModelOrd>(&mut self, a :&T, b :&T) {
+        self.greater_than_or(empty(), a, b);
+    }
+
+    pub fn greater_than_equal<T:ModelOrd>(&mut self, a :&T, b :&T) {
+        self.greater_than_equal_or(empty(), a, b);
+    }
+
+    pub fn less_than<T:ModelOrd>(&mut self, a :&T, b :&T) {
+        self.less_than_or(empty(), a, b);
+    }
+
+    pub fn less_than_equal<T:ModelOrd>(&mut self, a :&T, b :&T) {
+        self.less_than_equal_or(empty(), a, b);
+    }
+
+    pub fn greater_than_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
+        self.less_than_or(prefix,b,a);
+    }
+
+    pub fn greater_than_equal_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
+        self.less_than_equal_or(prefix,b,a);
+    }
+
+    pub fn less_than_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
+        T::assert_less_or(self, prefix.into_iter().collect(), false, a, b);
+    }
+
+    pub fn less_than_equal_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
+        T::assert_less_or(self, prefix.into_iter().collect(), true, a, b);
+    }
+
 }
 
 impl Drop for Sat {
@@ -442,6 +637,67 @@ pub trait ModelEq {
     }
 }
 
+pub trait ModelOrd {
+    fn assert_less_or(solver :&mut Sat, prefix: Vec<Bool>, inclusive: bool, a :&Self, b :&Self) {
+        Self::assert_less_tuple_or(solver, prefix, inclusive, (a,&()), (b,&()));
+    }
+
+    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&Self, b :&Self) -> Bool {
+        let q = solver.new_lit();
+        Self::assert_less_or(solver, vec![!q], inclusive, a, b);
+        q
+    }
+
+    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Sat, prefix: Vec<Bool>, inclusive :bool, x_p :(&Self, &B), y_q :(&Self, &B)) {
+        let (x,p) = x_p;
+        let (y,q) = y_q;
+        match B::new_less_lit(solver, inclusive, p, q) {
+            Bool::Const(c) => Self::assert_less_or(solver, prefix, c.into(), x, y),
+            lit => {
+                Self::assert_less_or(solver, prefix.clone(), true, x, y);
+                Self::assert_less_or(solver, 
+                     prefix.iter().cloned().chain(once(lit)).collect(), false, x, y);
+            },
+        }
+    }
+}
+
+impl ModelOrd for () {
+    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&(), b :&()) {
+        if !inclusive {
+            solver.add_clause(prefix);
+        }
+    }
+
+    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&(), b :&()) -> Bool {
+        inclusive.into()
+    }
+
+    fn assert_less_tuple_or<B :ModelOrd>(solver :&mut Sat, prefix: Vec<Bool>, inclusive :bool, (_,p) :(&(), &B), (_,q) :(&(), &B)) {
+        B::assert_less_or(solver ,prefix, inclusive, p, q);
+    }
+}
+
+impl ModelOrd for Unary {
+    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Unary, b :&Unary) {
+        if !inclusive {
+            Self::assert_less_or(solver, prefix, true, &a.succ(), b);
+        } else {
+            for i in 0..(a.0.len()) {
+                if i < b.0.len() {
+                    solver.add_clause(prefix.iter().cloned()
+                                      .chain(once(!(a.0)[i]))
+                                      .chain(once((b.0)[i])));
+                } else {
+                    solver.add_clause(prefix.iter().cloned()
+                                      .chain(once(!(a.0)[i])));
+                    break;
+                }
+            }
+        }
+    }
+}
+
 use std::iter::{once,empty};
 impl ModelEq for Bool {
     fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a: &Bool, b :&Bool)  {
@@ -455,6 +711,19 @@ impl ModelEq for Bool {
 
     fn is_equal(solver :&mut Sat, a :&Bool, b :&Bool) -> Bool {
         solver.xor_literal(once(*a).chain(once(!*b)))
+    }
+}
+
+impl ModelEq for Unary {
+    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a :&Unary, b :&Unary) {
+        solver.less_than_equal_or(prefix.clone(), a, b);
+        solver.less_than_equal_or(prefix, b, a);
+    }
+
+    fn assert_not_equal_or(solver :&mut Sat, prefix :Vec<Bool>, a :&Unary, b :&Unary) {
+        let q = solver.new_lit();
+        solver.less_than_or(prefix.iter().cloned().chain(once(q)),  a, b);
+        solver.less_than_or(prefix.iter().cloned().chain(once(!q)), b, a);
     }
 }
 
@@ -636,6 +905,27 @@ mod tests {
     }
 
     #[test]
+    fn unary_1() {
+        let mut sat = Sat::new();
+        let a = sat.new_unary(100);
+        let b = sat.new_unary(200);
+        sat.greater_than(&a, &Unary::constant(50));
+        sat.less_than(&a.mul_const(2), &b);
+
+        match sat.solve() {
+            Ok(model) => {
+                let av = model.value(&a);
+                println!("A value: {}", av);
+                let bv = model.value(&b);
+                println!("B value: {}", bv);
+                assert!(av > 50);
+                assert!(bv > av);
+            },
+            _ => panic!(),
+        }
+    }
+
+    #[test]
     fn graph_color() {
         let mut coloring = Sat::new();
 
@@ -655,6 +945,33 @@ mod tests {
                 for i in 0..n_nodes {
                     println!("Node {}: {:?}", i, model.value(&colors[i]));
                 }
+            },
+            Err(()) => {
+                println!("No solution.");
+            }
+        }
+    }
+
+    #[test]
+    fn take_more_than_len() {
+        let mut iter = vec![1,2,3].into_iter().take(9999);
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next(), Some(2));
+        assert_eq!(iter.next(), Some(3));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn factorization() {
+        let mut sat = Sat::new();
+        let a = sat.new_unary(64);
+        let b = sat.new_unary(64);
+        let c = a.mul(&mut sat, &b);
+        sat.equal(&c, &Unary::constant(529));
+
+        match sat.solve() {
+            Ok(model) => {
+                println!("{}*{}=529", model.value(&a), model.value(&b));
             },
             Err(()) => {
                 println!("No solution.");

@@ -32,7 +32,8 @@ High-level features ported from [satplus](https://github.com/koengit/satplus):
     * Value trait (`ModelValue`)
     * Equality trait (`ModelEq`)
     * Ordering trait (`ModelOrd`)
- * Symbolic values
+ * Symbolic values (`Symbolic<V>`)
+ * Non-negative integers with unary encoding (`Unary`)
 
 Graph coloring example:
 ```rust
@@ -47,7 +48,7 @@ fn main() {
     let n_nodes = 5;
     let edges = vec![(0,1),(1,2),(2,3),(3,4),(3,1),(4,0),(4,2)];
     let colors = (0..n_nodes)
-        .map(|_| coloring.symbolic(vec![Color::Red, Color::Green, Color::Blue]))
+        .map(|_| coloring.new_symbolic(vec![Color::Red, Color::Green, Color::Blue]))
         .collect::<Vec<_>>();
     for (n1,n2) in edges {
         coloring.not_equal(&colors[n1],&colors[n2]);
@@ -57,6 +58,28 @@ fn main() {
             for i in 0..n_nodes {
                 println!("Node {}: {:?}", i, model.value(&colors[i]));
             }
+        },
+        Err(()) => {
+            println!("No solution.");
+        }
+    }
+}
+```
+
+Factorization example:
+```rust
+extern crate minisat;
+
+fn main() {
+    let mut sat = minisat::Sat::new();
+    let a = sat.new_unary(64);
+    let b = sat.new_unary(64);
+    let c = a.mul(&mut sat, &b);
+    sat.equal(&c, &minisat::Unary::constant(529));
+
+    match sat.solve() {
+        Ok(model) => {
+            println!("{}*{}=529", model.value(&a), model.value(&b));
         },
         Err(()) => {
             println!("No solution.");
