@@ -29,7 +29,7 @@
 //! 
 //! High-level features ported from [satplus](https://github.com/koengit/satplus):
 //!  * Traits for representing non-boolean values in the SAT problem:
-//!     * Boolean trait (`ModelValue`)
+//!     * Value trait (`ModelValue`)
 //!     * Equality trait (`ModelEq`)
 //!     * Ordering trait (`ModelOrd`)
 //!  * Symbolic values
@@ -86,12 +86,12 @@ pub struct Sat {
     ptr: *mut minisat_solver_t,
 }
 
-/// Boolean value, either a constant (`Boolean::Bool`) or
-/// a literal (`Boolean::Lit`).  Create values by creating new 
+/// Boolean value, either a constant (`Bool::Const`) or
+/// a literal (`Bool::Lit`).  Create values by creating new 
 /// variables (`Sat::new_lit()`) or from a constant boolean (`true.into()`).
 #[derive(Debug, Copy, Clone)]
-pub enum Boolean {
-  Bool(bool),
+pub enum Bool {
+  Const(bool),
   Lit(Lit),
 }
 
@@ -112,18 +112,18 @@ impl Lit {
     }
 }
 
-impl From<bool> for Boolean {
+impl From<bool> for Bool {
     fn from(item :bool) -> Self {
-        Boolean::Bool(item)
+        Bool::Const(item)
     }
 }
 
-impl Not for Boolean {
-    type Output = Boolean;
-    fn not(self) -> Boolean {
+impl Not for Bool {
+    type Output = Bool;
+    fn not(self) -> Bool {
         match self {
-            Boolean::Bool(b) => Boolean::Bool(!b),
-            Boolean::Lit(l) => Boolean::Lit(!l),
+            Bool::Const(b) => Bool::Const(!b),
+            Bool::Lit(l) => Bool::Lit(!l),
         }
     }
 }
@@ -137,7 +137,7 @@ impl Not for Lit {
 
 //use std::marker::PhantomData;
 
-pub struct Symbolic<T>(Vec<(Boolean, T)>);
+pub struct Symbolic<T>(Vec<(Bool, T)>);
 
 impl<T> Symbolic<T> {
     pub fn domain(&self) -> impl Iterator<Item = &T> {
@@ -146,7 +146,7 @@ impl<T> Symbolic<T> {
 }
 
 impl<T:Eq> Symbolic<T> {
-    pub fn has_value(&self, a :&T) -> Boolean {
+    pub fn has_value(&self, a :&T) -> Bool {
         for (v,x) in &self.0 {
             if x == a { 
                 return *v;
@@ -156,7 +156,7 @@ impl<T:Eq> Symbolic<T> {
     }
 }
 
-pub struct Unary(Vec<Boolean>);
+pub struct Unary(Vec<Bool>);
 
 impl Unary {
     //pub fn new(solver :&mut Sat, size :usize) -> Self {
@@ -207,8 +207,8 @@ impl Sat {
     }
 
     /// Create a new variable.
-    pub fn new_lit(&mut self) -> Boolean {
-        Boolean::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
+    pub fn new_lit(&mut self) -> Bool {
+        Bool::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
     }
 
     pub fn new_symbolic<T>(&mut self, mut xs :Vec<T>) -> Symbolic<T> {
@@ -229,13 +229,13 @@ impl Sat {
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
-    pub fn add_clause<I: IntoIterator<Item = Boolean>>(&mut self, lits :I) {
+    pub fn add_clause<I: IntoIterator<Item = Bool>>(&mut self, lits :I) {
         unsafe { minisat_addClause_begin(self.ptr) };
         for lit in lits {
             match lit {
-                Boolean::Bool(true) => return,
-                Boolean::Bool(false) => {}, 
-                Boolean::Lit(Lit(ptr, l)) => {
+                Bool::Const(true) => return,
+                Bool::Const(false) => {}, 
+                Bool::Lit(Lit(ptr, l)) => {
                     assert_eq!(ptr, self.ptr);
                     unsafe { minisat_addClause_addLit(ptr, l); }
                 }
@@ -259,13 +259,13 @@ impl Sat {
     /// so the result is the same as if each literal was added as a clause, but 
     /// the solver object can be re-used afterwards and does then not contain these assumptions.
     /// This interface can be used to build SAT instances incrementally.
-    pub fn solve_under_assumptions<'a, I:IntoIterator<Item = Boolean>>(&'a mut self, lits :I) -> Result<Model<'a>, ()> {
+    pub fn solve_under_assumptions<'a, I:IntoIterator<Item = Bool>>(&'a mut self, lits :I) -> Result<Model<'a>, ()> {
         unsafe { minisat_solve_begin(self.ptr); }
         for lit in lits {
             match lit {
-                Boolean::Bool(false) => return Err(()),
-                Boolean::Bool(true) => {},
-                Boolean::Lit(Lit(ptr, l)) => {
+                Bool::Const(false) => return Err(()),
+                Bool::Const(true) => {},
+                Bool::Lit(Lit(ptr, l)) => {
                     assert_eq!(ptr, self.ptr);
                     unsafe { minisat_solve_addLit(ptr, l); }
                 }
@@ -279,15 +279,15 @@ impl Sat {
         }
     }
 
-    pub fn and_literal<I:IntoIterator<Item = Boolean>>(&mut self, xs :I) -> Boolean {
+    pub fn and_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         use std::collections::HashSet;
         let mut lits = Vec::new();
         let mut posneg = [HashSet::new(), HashSet::new()];
         for v in xs {
             match v {
-                Boolean::Bool(false) => return false.into(),
-                Boolean::Bool(true) => {},
-                Boolean::Lit(l) => {
+                Bool::Const(false) => return false.into(),
+                Bool::Const(true) => {},
+                Bool::Lit(l) => {
                     let (var,s) = l.into_var();
                     if posneg[s as usize].contains(&var) { 
                         return false.into(); 
@@ -301,25 +301,25 @@ impl Sat {
 
         let y = self.new_lit();
         for x in &mut lits {
-            self.add_clause(once(!y).chain(once(Boolean::Lit(*x))));
+            self.add_clause(once(!y).chain(once(Bool::Lit(*x))));
         }
-        let mut lits = lits.into_iter().map(|x| ! Boolean::Lit(x)).collect::<Vec<_>>();
+        let mut lits = lits.into_iter().map(|x| ! Bool::Lit(x)).collect::<Vec<_>>();
         lits.push(y);
         self.add_clause(lits.into_iter());
         y
     }
 
-    pub fn or_literal<I:IntoIterator<Item = Boolean>>(&mut self, xs :I) -> Boolean {
+    pub fn or_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         !(self.and_literal(xs.into_iter().map(|x| !x)))
     }
 
-    pub fn assert_exactly_one<I:IntoIterator<Item = Boolean>>(&mut self, xs :I) {
+    pub fn assert_exactly_one<I:IntoIterator<Item = Bool>>(&mut self, xs :I) {
         let xs = xs.into_iter().collect::<Vec<_>>();
         self.add_clause(xs.iter().cloned());
         self.assert_at_most_one(xs.iter().cloned());
     }
 
-    pub fn assert_at_most_one(&mut self, xs: impl Iterator<Item = Boolean>) {
+    pub fn assert_at_most_one(&mut self, xs: impl Iterator<Item = Bool>) {
         let xs = xs.collect::<Vec<_>>();
         if xs.len() <= 5 {
             for i in 0..xs.len() {
@@ -335,20 +335,19 @@ impl Sat {
         }
     }
 
-    pub fn implies(&mut self, a :Boolean, b :Boolean) -> Boolean {
+    pub fn implies(&mut self, a :Bool, b :Bool) -> Bool {
         self.or_literal(once(!a).chain(once(b)))
     }
 
-    pub fn assert_parity<I:IntoIterator<Item = Boolean>>(&mut self, xs :I, x :bool) {
+    pub fn assert_parity<I:IntoIterator<Item = Bool>>(&mut self, xs :I, x :bool) {
         self.assert_parity_or(empty(), xs, x);
     }
 
-    pub fn assert_parity_or<I:IntoIterator<Item = Boolean>,
-                            J:IntoIterator<Item = Boolean>>
+    pub fn assert_parity_or<I:IntoIterator<Item = Bool>,
+                            J:IntoIterator<Item = Bool>>
                                 (&mut self, prefix :I, xs :J, c :bool) {
         let mut xs = xs.into_iter().collect::<Vec<_>>();
         let prefix = prefix.into_iter().collect::<Vec<_>>();
-        println!("ASSERT PARITY OR {:?} {:?}", xs,prefix);
         if xs.len() == 0 {
             if c {
                 self.add_clause(prefix);
@@ -369,18 +368,18 @@ impl Sat {
         }
     }
 
-    pub fn xor_literal<I:IntoIterator<Item = Boolean>>(&mut self, xs :I) -> Boolean {
+    pub fn xor_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         use std::collections::HashSet;
         let mut posneg = [HashSet::new(), HashSet::new()];
         let mut const_parity = true;
         for x in xs {
             match x {
-                Boolean::Bool(b) => { const_parity ^= b},
-                Boolean::Lit(l) => {
+                Bool::Const(b) => { const_parity ^= b},
+                Bool::Lit(l) => {
                     assert_eq!(l.0, self.ptr);
                     let (var,s) = l.into_var();
                     let s = s as usize;
-                    println!("SIGN {}", s);
+                    //println!("SIGN {}", s);
                     if !posneg[s].insert(var) { 
                         posneg[s].remove(&var);
                     }
@@ -394,9 +393,8 @@ impl Sat {
             }
         }
 
-        let out = posneg[0].iter().map(|x| Boolean::Lit(Lit::from_var_sign(self.ptr,*x,false)))
-           .chain(posneg[1].iter().map(|x| Boolean::Lit(Lit::from_var_sign(self.ptr,*x,true)))).collect::<Vec<_>>();
-        println!("OUT {:?}", out);
+        let out = posneg[0].iter().map(|x| Bool::Lit(Lit::from_var_sign(self.ptr,*x,false)))
+           .chain(posneg[1].iter().map(|x| Bool::Lit(Lit::from_var_sign(self.ptr,*x,true)))).collect::<Vec<_>>();
         if out.len() == 0 {
             const_parity.into()
         } else if out.len() == 1 {
@@ -434,9 +432,9 @@ pub trait ModelValue<'a> {
 }
 
 pub trait ModelEq {
-    fn assert_equal_or(solver: &mut Sat, prefix: Vec<Boolean>, a :&Self, b :&Self);
-    fn assert_not_equal_or(solver: &mut Sat, prefix: Vec<Boolean>, a :&Self, b :&Self);
-    fn is_equal(solver :&mut Sat, a :&Self, b:&Self) -> Boolean {
+    fn assert_equal_or(solver: &mut Sat, prefix: Vec<Bool>, a :&Self, b :&Self);
+    fn assert_not_equal_or(solver: &mut Sat, prefix: Vec<Bool>, a :&Self, b :&Self);
+    fn is_equal(solver :&mut Sat, a :&Self, b:&Self) -> Bool {
         let q = solver.new_lit();
         Self::assert_equal_or(solver, vec![!q], a, b);
         Self::assert_not_equal_or(solver, vec![q], a, b);
@@ -445,23 +443,23 @@ pub trait ModelEq {
 }
 
 use std::iter::{once,empty};
-impl ModelEq for Boolean {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Boolean>, a: &Boolean, b :&Boolean)  {
+impl ModelEq for Bool {
+    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a: &Bool, b :&Bool)  {
         solver.add_clause(prefix.iter().cloned().chain(once(!*a)).chain(once(*b)));
         solver.add_clause(prefix.iter().cloned().chain(once(*a)) .chain(once(!*b)));
     }
 
-    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Boolean>, a: &Boolean, b :&Boolean)  {
+    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a: &Bool, b :&Bool)  {
         Self::assert_equal_or(solver, prefix, a, &!*b);
     }
 
-    fn is_equal(solver :&mut Sat, a :&Boolean, b :&Boolean) -> Boolean {
+    fn is_equal(solver :&mut Sat, a :&Bool, b :&Bool) -> Bool {
         solver.xor_literal(once(*a).chain(once(!*b)))
     }
 }
 
 impl<V:Ord> ModelEq for Symbolic<V> {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Boolean>, 
+    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, 
                        a: &Symbolic<V>, b :&Symbolic<V>)  {
         for (p,q,x) in stitch(a,b) {
             match (p,q,x) {
@@ -476,7 +474,7 @@ impl<V:Ord> ModelEq for Symbolic<V> {
         }
     }
 
-    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Boolean>, 
+    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Bool>, 
                            a: &Symbolic<V>, b :&Symbolic<V>)  {
         for (p,q,x) in stitch(a,b) {
             match (p,q,x) {
@@ -488,9 +486,9 @@ impl<V:Ord> ModelEq for Symbolic<V> {
     }
 }
 
-fn stitch<'a, V:Ord>(a :&'a Symbolic<V>, b:&'a Symbolic<V>) -> impl Iterator<Item = (Option<Boolean>, Option<Boolean>, &'a V)> {
+fn stitch<'a, V:Ord>(a :&'a Symbolic<V>, b:&'a Symbolic<V>) -> impl Iterator<Item = (Option<Bool>, Option<Bool>, &'a V)> {
     use itertools::Itertools;
-    let mut v : Vec<(Option<Boolean>, Option<Boolean>, &'a V)> = 
+    let mut v : Vec<(Option<Bool>, Option<Bool>, &'a V)> = 
         a.0.iter().map(|(v,x)| (Some(*v), None,    x)).chain(
         b.0.iter().map(|(v,x)| (None,     Some(*v),x))).collect();
     v.sort_by(|(_,_,x),(_,_,y)| x.cmp(y));
@@ -502,13 +500,13 @@ fn stitch<'a, V:Ord>(a :&'a Symbolic<V>, b:&'a Symbolic<V>) -> impl Iterator<Ite
                            })
 }
 
-impl<'a> ModelValue<'a> for Boolean {
+impl<'a> ModelValue<'a> for Bool {
     type T = bool;
 
     fn value(&self, m: &Model) -> bool {
         match self {
-            Boolean::Bool(b) => *b,
-            Boolean::Lit(Lit(s,l)) => {
+            Bool::Const(b) => *b,
+            Bool::Lit(Lit(s,l)) => {
                 assert_eq!(m.0.ptr, *s);
                 let lbool = unsafe { minisat_modelValue_Lit(*s,*l) };
                 if unsafe { minisat_get_l_True() } == lbool {
@@ -619,14 +617,14 @@ mod tests {
         let x = sat.xor_literal(vec![a,!b,c,d]);
         sat.add_clause(vec![x]);
         loop {
-            let (mut av, mut bv, mut cv, mut dv) = (false,false,false,false);
+            let (av,bv,cv,dv);
             match sat.solve() {
                 Ok(model) => {
                     av = model.value(&a);
                     bv = model.value(&b);
                     cv = model.value(&c);
                     dv = model.value(&d);
-                    println!("MODEL 1 {} {} {} {}", av,bv,cv, dv);
+                    println!("MODEL: a={}\tb={}\tc={}\td={}", av,bv,cv,dv);
                     assert_eq!(true, av^(!bv)^cv^dv);
                 },
                 _ => {break;},
