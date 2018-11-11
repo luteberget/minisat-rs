@@ -238,9 +238,9 @@ impl Unary {
         Unary(self.0.chunks(c).flat_map(|x| x.get(c-1)).cloned().collect())
     }
 
-    pub fn mod_const(&self, c :usize) -> Unary {
-        unimplemented!()
-    }
+    // pub fn mod_const(&self, c :usize) -> Unary {
+    //     unimplemented!()
+    // }
 
     pub fn bound(&self) -> usize {
         self.0.len()
@@ -371,7 +371,7 @@ impl Sat {
 
     pub fn new_unary(&mut self, size :usize) -> Unary {
         let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
-        for i in (1..size) {
+        for i in 1..size {
             self.add_clause(once(!lits[i]).chain(once(lits[i-1])));
         }
         Unary(lits)
@@ -609,6 +609,26 @@ impl Sat {
         T::assert_less_or(self, prefix.into_iter().collect(), true, a, b);
     }
 
+
+    pub fn num_assigns(&self) -> isize {
+        unsafe { minisat_num_assigns(self.ptr)  as isize }
+    }
+
+    pub fn num_clauses(&self) -> isize {
+        unsafe { minisat_num_clauses(self.ptr)  as isize }
+    }
+
+    pub fn num_learnts(&self) -> isize {
+        unsafe { minisat_num_learnts(self.ptr)  as isize }
+    }
+
+    pub fn num_vars(&self) -> isize {
+        unsafe { minisat_num_vars(self.ptr)  as isize }
+    }
+
+    pub fn num_free_vars(&self) -> isize {
+        unsafe { minisat_num_freeVars(self.ptr)  as isize }
+    }
 }
 
 impl Drop for Sat {
@@ -616,6 +636,14 @@ impl Drop for Sat {
         unsafe { minisat_delete(self.ptr); }
     }
 }
+
+use std::fmt;
+impl fmt::Debug for Sat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SAT instance (MiniSat v2.1.0) {{ variables: {}, clauses: {} }}", self.num_vars(), self.num_clauses())
+    }
+}
+
 
 /// A model, in the logic sense, contains and assignments to each variable
 /// in the SAT instance which satisfies the clauses added to the problem.
@@ -663,13 +691,13 @@ pub trait ModelOrd {
 }
 
 impl ModelOrd for () {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&(), b :&()) {
+    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, _a :&(), _b :&()) {
         if !inclusive {
             solver.add_clause(prefix);
         }
     }
 
-    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&(), b :&()) -> Bool {
+    fn new_less_lit(_ :&mut Sat, inclusive :bool, _a :&(), _b :&()) -> Bool {
         inclusive.into()
     }
 
@@ -969,6 +997,7 @@ mod tests {
         let c = a.mul(&mut sat, &b);
         sat.equal(&c, &Unary::constant(529));
 
+        println!("Solving {:?}", sat);
         match sat.solve() {
             Ok(model) => {
                 println!("{}*{}=529", model.value(&a), model.value(&b));
