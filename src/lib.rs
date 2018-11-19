@@ -190,7 +190,6 @@ impl Binary {
             v.push(if x%2 == 1 { true.into() } else { false.into() });
             x /= 2;
         }
-        //println!("CONSTAN T {:?}", v);
         Binary(v)
     }
 
@@ -226,8 +225,6 @@ impl Binary {
         let mut out = Vec::new();
         let mut i = 0;
 
-        println!("add_bits  {:#?}", xs);
-
         while xs.len() > 0 {
             if i < xs[0].bit {
                 out.push(false.into());
@@ -256,7 +253,6 @@ impl Binary {
             }
         }
 
-        println!("OUT {:?}", out);
         Binary(out)
     }
 
@@ -514,7 +510,6 @@ impl Sat {
 
     pub fn new_binary(&mut self, size :usize) -> Binary {
         let size = ((size as f64).log(2.0)+0.5) as u32;
-        println!("Binary {} bits", size);
         let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
         Binary(lits)
     }
@@ -683,7 +678,6 @@ impl Sat {
                     assert_eq!(l.0, self.ptr);
                     let (var,s) = l.into_var();
                     let s = s as usize;
-                    //println!("SIGN {}", s);
                     if !posneg[s].insert(var) { 
                         posneg[s].remove(&var);
                     }
