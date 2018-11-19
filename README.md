@@ -34,6 +34,7 @@ High-level features ported from [satplus](https://github.com/koengit/satplus):
     * Ordering trait (`ModelOrd`)
  * Symbolic values (`Symbolic<V>`)
  * Non-negative integers with unary encoding (`Unary`)
+ * Non-negative integers with binary encoding (`Binary`)
 
 Graph coloring example:
 ```rust
@@ -72,14 +73,14 @@ extern crate minisat;
 
 fn main() {
     let mut sat = minisat::Sat::new();
-    let a = sat.new_unary(64);
-    let b = sat.new_unary(64);
+    let a = sat.new_binary(1000);
+    let b = sat.new_binary(1000);
     let c = a.mul(&mut sat, &b);
-    sat.equal(&c, &minisat::Unary::constant(529));
+    sat.equal(&c, &minisat::Binary::constant(36863));
 
     match sat.solve() {
         Ok(model) => {
-            println!("{}*{}=529", model.value(&a), model.value(&b));
+            println!("{}*{}=36863", model.value(&a), model.value(&b));
         },
         Err(()) => {
             println!("No solution.");

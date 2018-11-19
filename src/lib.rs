@@ -34,6 +34,7 @@
 //!     * Ordering trait (`ModelOrd`)
 //!  * Symbolic values (`Symbolic<V>`)
 //!  * Non-negative integers with unary encoding (`Unary`)
+//!  * Non-negative integers with binary encoding (`Binary`)
 //!
 //! Graph coloring example:
 //! ```rust
@@ -72,14 +73,14 @@
 //!
 //! fn main() {
 //!     let mut sat = minisat::Sat::new();
-//!     let a = sat.new_unary(64);
-//!     let b = sat.new_unary(64);
+//!     let a = sat.new_binary(1000);
+//!     let b = sat.new_binary(1000);
 //!     let c = a.mul(&mut sat, &b);
-//!     sat.equal(&c, &minisat::Unary::constant(529));
+//!     sat.equal(&c, &minisat::Binary::constant(36863));
 //!
 //!     match sat.solve() {
 //!         Ok(model) => {
-//!             println!("{}*{}=529", model.value(&a), model.value(&b));
+//!             println!("{}*{}=36863", model.value(&a), model.value(&b));
 //!         },
 //!         Err(()) => {
 //!             println!("No solution.");
@@ -112,14 +113,14 @@ pub struct Sat {
 /// Boolean value, either a constant (`Bool::Const`) or
 /// a literal (`Bool::Lit`).  Create values by creating new 
 /// variables (`Sat::new_lit()`) or from a constant boolean (`true.into()`).
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Bool {
   Const(bool),
   Lit(Lit),
 }
 
 /// A literal is a boolean variable or its negation.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Lit(*mut minisat_solver_t, minisat_Lit);
 
 impl Lit {
@@ -178,6 +179,140 @@ impl<T:Eq> Symbolic<T> {
         false.into()
     }
 }
+
+#[derive(Debug,Clone)]
+pub struct Binary(Vec<Bool>);
+
+impl Binary {
+    pub fn constant(mut x :usize) -> Binary {
+        let mut v = Vec::new();
+        while x > 0 {
+            v.push(if x%2 == 1 { true.into() } else { false.into() });
+            x /= 2;
+        }
+        //println!("CONSTAN T {:?}", v);
+        Binary(v)
+    }
+
+    pub fn invert(&self) -> Binary {
+        Binary(self.0.iter().cloned().map(|x| !x).collect())
+    }
+
+    pub fn from_list<I :IntoIterator<Item = Bool>>(xs :I) -> Binary {
+        Binary(xs.into_iter().collect())
+    }
+
+    pub fn count(&self, solver :&mut Sat) -> Binary {
+        let bins = self.0.iter().cloned().map(|d| Binary::from_list(once(d)))
+            .collect::<Vec<_>>();
+        Binary::add_list(solver, bins.iter())
+    }
+
+    pub fn add(&self, solver :&mut Sat, other :&Binary) -> Binary {
+        Binary::add_list(solver, once(self).chain(once(other)))
+    }
+
+    pub fn add_list<'a, I :IntoIterator<Item = &'a Binary>>(solver :&mut Sat, xs :I) -> Binary {
+        Binary::add_bits(solver, 
+                         xs.into_iter().flat_map(|x| x.0.iter().cloned()
+                                                 .enumerate()).collect())
+    }
+
+    pub fn add_bits(solver :&mut Sat, xs :Vec<(usize,Bool)>) -> Binary {
+        #[derive(Debug)]
+        struct Item { bit :usize, val :Bool };
+        let mut xs = xs.into_iter().map(|(bit,val)| Item { bit, val }).collect::<Vec<_>>();
+        xs.sort_by_key(|&Item { bit, .. }| bit);
+        let mut out = Vec::new();
+        let mut i = 0;
+
+        println!("add_bits  {:#?}", xs);
+
+        while xs.len() > 0 {
+            if i < xs[0].bit {
+                out.push(false.into());
+                i = i+1;
+            } else if xs.len() >= 3 && xs[0].bit == xs[1].bit && xs[1].bit == xs[2].bit {
+                let Item { bit     , val: a_val } = xs.remove(0);
+                let Item { bit: _,   val: b_val } = xs.remove(0);
+                let Item { bit: _,   val: c_val } = xs.remove(0);
+                let (v,c) = Binary::full_add(solver, a_val, b_val, c_val);
+                xs.push(Item { bit: bit, val: v });
+                xs.push(Item { bit: bit + 1, val: c });
+                xs.sort_by_key(|&Item { bit, .. }| bit);
+                i = bit;
+            } else if xs.len() >= 2 && xs[0].bit == xs[1].bit {
+                let Item { bit     , val: a_val } = xs.remove(0);
+                let Item { bit: _,   val: b_val } = xs.remove(0);
+                let (v,c) = Binary::full_add(solver, a_val, b_val, false.into());
+                out.push(v);
+                xs.push(Item { bit: bit + 1, val: c });
+                xs.sort_by_key(|&Item { bit, .. }| bit);
+                i = bit + 1;
+            } else {
+                let Item { bit, val } = xs.remove(0);
+                out.push(val);
+                i = bit + 1;
+            }
+        }
+
+        println!("OUT {:?}", out);
+        Binary(out)
+    }
+
+    fn full_add(solver: &mut Sat, a :Bool, b :Bool, c :Bool) -> (Bool, Bool) {
+        let v = solver.xor_literal(once(a).chain(once(b)).chain(once(c)));
+        let c = Binary::at_least_two(solver, a, b, c);
+        (v,c)
+    }
+
+    fn at_least_two(solver :&mut Sat, a :Bool, b :Bool, c :Bool) -> Bool {
+        if a == true.into() { solver.or_literal(once(b).chain(once(c))) }
+        else if b == true.into() { solver.or_literal(once(a).chain(once(c))) }
+        else if c == true.into() { solver.or_literal(once(a).chain(once(b))) }
+        else if a == false.into() { solver.and_literal(once(b).chain(once(c))) }
+        else if b == false.into() { solver.and_literal(once(a).chain(once(c))) }
+        else if c == false.into() { solver.and_literal(once(a).chain(once(b))) }
+        else if a == b { a }
+        else if b == c { b }
+        else if a == c { c }
+        else if a == !b { c }
+        else if b == !c { a }
+        else if a == !c { b }
+        else {
+            let v = solver.new_lit();
+            solver.add_clause(once(!a).chain(once(!b)).chain(once(v)));
+            solver.add_clause(once(!a).chain(once(!c)).chain(once(v)));
+            solver.add_clause(once(!b).chain(once(!c)).chain(once(v)));
+            solver.add_clause(once( a).chain(once( b)).chain(once(!v)));
+            solver.add_clause(once( a).chain(once( c)).chain(once(!v)));
+            solver.add_clause(once( b).chain(once( c)).chain(once(!v)));
+            v
+        }
+    }
+
+    pub fn bound(&self) -> usize {
+        (2 as usize).pow(self.0.len() as u32) -1
+    }
+
+    pub fn mul_digit(&self, solver :&mut Sat, y :Bool) -> Binary {
+        Binary(self.0.iter().cloned().map(|x| solver.and_literal(once(x).chain(once(y)))).collect())
+    }
+
+    pub fn mul(&self, solver :&mut Sat, other :&Binary) -> Binary {
+        let mut out = Vec::new();
+        for (i,x) in self.0.iter().cloned().enumerate() {
+            for (j,y) in other.0.iter().cloned().enumerate() {
+                let z = solver.and_literal(once(x).chain(once(y)));
+                out.push(((i+j), z));
+            }
+        }
+
+        Binary::add_bits(solver, out)
+    }
+}
+
+
 
 #[derive(Debug,Clone)]
 pub struct Unary(Vec<Bool>);
@@ -375,6 +510,13 @@ impl Sat {
             self.add_clause(once(!lits[i]).chain(once(lits[i-1])));
         }
         Unary(lits)
+    }
+
+    pub fn new_binary(&mut self, size :usize) -> Binary {
+        let size = ((size as f64).log(2.0)+0.5) as u32;
+        println!("Binary {} bits", size);
+        let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
+        Binary(lits)
     }
 
     pub fn bool_to_unary(&mut self, digit :Bool) -> Unary {
@@ -706,6 +848,28 @@ impl ModelOrd for () {
     }
 }
 
+impl ModelOrd for Bool {
+    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&Bool, b :&Bool) -> Bool {
+        if a == b {
+            inclusive.into()
+        } else if  *a == !*b {
+            b.clone()
+        } else if let Bool::Const(false) = a {
+            if inclusive { true.into() } else { b.clone() }
+        } else if let Bool::Const(true) = a {
+            if inclusive { b.clone() } else { false.into() }
+        } else if let Bool::Const(false) = b {
+            if inclusive { !(a.clone()) } else { false.into() }
+        } else if let Bool::Const(true) = b {
+            if inclusive { true.into() } else { !(a.clone()) }
+        } else {
+            let q = solver.new_lit();
+            Bool::assert_less_or(solver, vec![!q], inclusive, a, b);
+            q
+        }
+    }
+}
+
 impl ModelOrd for Unary {
     fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Unary, b :&Unary) {
         if !inclusive {
@@ -723,6 +887,26 @@ impl ModelOrd for Unary {
                 }
             }
         }
+    }
+}
+
+impl ModelOrd for Binary {
+    fn assert_less_or(solver :&mut Sat, mut prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
+        let mut i = 0;
+        let mut q = solver.new_lit();
+        prefix.push(q);
+        while i < a.0.len() || i < b.0.len() {
+            let ai = a.0.get(i).cloned().unwrap_or(false.into());
+            let bi = b.0.get(i).cloned().unwrap_or(false.into());
+
+            Bool::assert_less_or(solver, prefix.clone(), inclusive, &ai, &bi);
+            prefix.clear();
+            prefix.push(!q);
+            q = solver.new_lit();
+
+            i += 1;
+        }
+        solver.add_clause(prefix);
     }
 }
 
@@ -752,6 +936,37 @@ impl ModelEq for Unary {
         let q = solver.new_lit();
         solver.less_than_or(prefix.iter().cloned().chain(once(q)),  a, b);
         solver.less_than_or(prefix.iter().cloned().chain(once(!q)), b, a);
+    }
+}
+
+
+impl ModelEq for Binary {
+    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a :&Binary, b :&Binary) {
+        let mut i = 0;
+        while i < a.0.len() || i < b.0.len() {
+            Bool::assert_equal_or(solver, prefix.clone(), a.0.get(i).unwrap_or(&false.into()),
+                                                  b.0.get(i).unwrap_or(&false.into()));
+            i += 1;
+        }
+    }
+
+    fn assert_not_equal_or(solver :&mut Sat, mut prefix: Vec<Bool>, a :&Binary, b :&Binary) {
+        let mut i = 0;
+        let mut q = solver.new_lit();
+        prefix.push(q);
+
+        while i < a.0.len() || i < b.0.len() {
+            let ai = a.0.get(i).cloned().unwrap_or(false.into());
+            let bi = b.0.get(i).cloned().unwrap_or(false.into());
+
+            Bool::assert_not_equal_or(solver, prefix.clone(), &ai, &bi);
+            prefix.clear();
+            prefix.push(!q);
+
+            q = solver.new_lit();
+            i += 1;
+        }
+        solver.add_clause(prefix);
     }
 }
 
@@ -838,6 +1053,15 @@ impl<'a> ModelValue<'a> for Unary {
             .find(|(_i,x)| !m.value(*x))
             .map(|(v,_)| v)
             .unwrap_or(self.0.len())
+    }
+}
+
+impl<'a> ModelValue<'a> for Binary {
+    type T = usize;
+    fn value(&self, m :&Model) -> usize {
+        self.0.iter().enumerate()
+            .map(|(i,x)| if m.value(x) { (2 as usize).pow(i as u32) } else { 0 })
+            .sum()
     }
 }
 
@@ -990,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn factorization() {
+    fn factorization_unary() {
         let mut sat = Sat::new();
         let a = sat.new_unary(64);
         let b = sat.new_unary(64);
@@ -1001,6 +1225,25 @@ mod tests {
         match sat.solve() {
             Ok(model) => {
                 println!("{}*{}=529", model.value(&a), model.value(&b));
+            },
+            Err(()) => {
+                println!("No solution.");
+            }
+        }
+    }
+
+    #[test]
+    fn factorization_binary() {
+        let mut sat = Sat::new();
+        let a = sat.new_binary(1000);
+        let b = sat.new_binary(1000);
+        let c = a.mul(&mut sat, &b);
+        sat.equal(&c, &Binary::constant(36863));
+
+        println!("Solving {:?}", sat);
+        match sat.solve() {
+            Ok(model) => {
+                println!("{}*{}=36863", model.value(&a), model.value(&b));
             },
             Err(()) => {
                 println!("No solution.");
