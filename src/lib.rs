@@ -184,12 +184,14 @@ impl<T:Eq> Symbolic<T> {
 pub struct Binary(Vec<Bool>);
 
 impl Binary {
-    pub fn constant(mut x :usize) -> Binary {
+    pub fn constant(x :usize) -> Binary {
         let mut v = Vec::new();
-        while x > 0 {
-            v.push(if x%2 == 1 { true.into() } else { false.into() });
-            x /= 2;
+        let mut i = x;
+        while i > 0 {
+            v.push(if i%2 == 1 { true.into() } else { false.into() });
+            i /= 2;
         }
+        println!("Binary constant {}={:?}", x, v);
         Binary(v)
     }
 
@@ -225,7 +227,13 @@ impl Binary {
         let mut out = Vec::new();
         let mut i = 0;
 
+        println!("Binary add INPUT");
+        for x in &xs {
+          println!("  {:?}", x);
+        }
+
         while xs.len() > 0 {
+            println!("add iter {:?}", xs);
             if i < xs[0].bit {
                 out.push(false.into());
                 i = i+1;
@@ -253,6 +261,10 @@ impl Binary {
             }
         }
 
+        println!("Binary add OUTPUT");
+        for x in &out {
+          println!("  {:?}", x);
+        }
         Binary(out)
     }
 
@@ -263,9 +275,9 @@ impl Binary {
     }
 
     fn at_least_two(solver :&mut Sat, a :Bool, b :Bool, c :Bool) -> Bool {
-        if a == true.into() { solver.or_literal(once(b).chain(once(c))) }
-        else if b == true.into() { solver.or_literal(once(a).chain(once(c))) }
-        else if c == true.into() { solver.or_literal(once(a).chain(once(b))) }
+        if a == true.into()       { solver.or_literal( once(b).chain(once(c))) }
+        else if b == true.into()  { solver.or_literal( once(a).chain(once(c))) }
+        else if c == true.into()  { solver.or_literal( once(a).chain(once(b))) }
         else if a == false.into() { solver.and_literal(once(b).chain(once(c))) }
         else if b == false.into() { solver.and_literal(once(a).chain(once(c))) }
         else if c == false.into() { solver.and_literal(once(a).chain(once(b))) }
@@ -594,6 +606,13 @@ impl Sat {
             }
         }
 
+        if lits.len() == 0 {
+            return true.into(); 
+        }
+        if lits.len() == 1 {
+            return Bool::Lit(lits[0]);
+        }
+
         let y = self.new_lit();
         for x in &mut lits {
             self.add_clause(once(!y).chain(once(Bool::Lit(*x))));
@@ -670,7 +689,7 @@ impl Sat {
     pub fn xor_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         use std::collections::HashSet;
         let mut posneg = [HashSet::new(), HashSet::new()];
-        let mut const_parity = true;
+        let mut const_parity = false;
         for x in xs {
             match x {
                 Bool::Const(b) => { const_parity ^= b},
@@ -696,10 +715,10 @@ impl Sat {
         if out.len() == 0 {
             const_parity.into()
         } else if out.len() == 1 {
-            if const_parity { !out[0] } else { out[0] } 
+            if const_parity { out[0] } else { !out[0] } 
         } else {
             let y = self.new_lit();
-            self.assert_parity(once(y).chain(out.into_iter()), !const_parity);
+            self.assert_parity(once(y).chain(out.into_iter()), const_parity);
             y
         }
     }
@@ -843,6 +862,18 @@ impl ModelOrd for () {
 }
 
 impl ModelOrd for Bool {
+    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, (x,p) :(&Bool, &B), (y,q) :(&Bool, &B)) {
+        if x == y {
+            B::assert_less_or(solver, prefix, inclusive, p, q);
+        } else {
+            let w = B::new_less_lit(solver, inclusive, p, q);
+            solver.add_clause(prefix.iter().cloned().chain(once( *y)).chain(once( w)));
+            solver.add_clause(prefix.iter().cloned().chain(once(!*x)).chain(once( w)));
+            solver.add_clause(prefix.iter().cloned().chain(once(!*x)).chain(once(*y)));
+        }
+        
+    }
+
     fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&Bool, b :&Bool) -> Bool {
         if a == b {
             inclusive.into()
@@ -884,23 +915,36 @@ impl ModelOrd for Unary {
     }
 }
 
-impl ModelOrd for Binary {
-    fn assert_less_or(solver :&mut Sat, mut prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
-        let mut i = 0;
-        let mut q = solver.new_lit();
-        prefix.push(q);
-        while i < a.0.len() || i < b.0.len() {
-            let ai = a.0.get(i).cloned().unwrap_or(false.into());
-            let bi = b.0.get(i).cloned().unwrap_or(false.into());
-
-            Bool::assert_less_or(solver, prefix.clone(), inclusive, &ai, &bi);
-            prefix.clear();
-            prefix.push(!q);
-            q = solver.new_lit();
-
-            i += 1;
+impl<'a> ModelOrd for &'a [Bool] {
+    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&&[Bool], b :&&[Bool]) {
+        if a.len() > 0 && b.len() > 0 {
+            Bool::assert_less_tuple_or(solver, prefix, inclusive, (&a[0], &&a[1..]), (&b[0], &&b[1..]));
+        } else if a.len() > 0 {
+            Bool::assert_less_tuple_or(solver, prefix, inclusive, (&a[0], &&a[1..]), (&false.into(), b));
+        } else if b.len() > 0 {
+            Bool::assert_less_tuple_or(solver, prefix, inclusive, (&false.into(), a), (&b[0], &&b[1..]));
+        } else {
+            if !inclusive {
+                solver.add_clause(prefix);
+            }
         }
-        solver.add_clause(prefix);
+    }
+}
+
+impl ModelOrd for Binary {
+    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
+        println!("ASSERT BINARY {}", inclusive);
+        use std::iter::repeat;
+        let len = a.0.len().max(b.0.len());
+        let mut a_bits = a.0.iter().cloned().chain(repeat(false.into()))
+            .take(len).collect::<Vec<_>>();
+        a_bits.reverse();
+        let mut b_bits = b.0.iter().cloned().chain(repeat(false.into()))
+            .take(len).collect::<Vec<_>>();
+        b_bits.reverse();
+        <&[Bool]>::assert_less_or(solver, prefix, inclusive, 
+                                  &&a_bits.as_slice(), 
+                                  &&b_bits.as_slice());
     }
 }
 
@@ -1243,5 +1287,40 @@ mod tests {
                 println!("No solution.");
             }
         }
+    }
+
+    #[test]
+    fn binary_ord() {
+        let mut sat = Sat::new();
+        let a = sat.new_binary(2_usize.pow(16));
+        let b = sat.new_binary(123123123123);
+        let c = sat.new_binary(1231231231239);
+
+
+        sat.less_than(&Binary::constant(30), &a);
+        sat.less_than(&a, &Binary::constant(90));
+        sat.less_than(&Binary::constant(15), &b);
+        sat.less_than(&b, &Binary::constant(17));
+        let d = a.add(&mut sat, &b);
+        let e = a.add(&mut sat, &Binary::constant(2));
+        //sat.less_than(&a, &b);
+//        sat.less_than(&Binary::constant(100001), &b);
+//        sat.greater_than(&Binary::constant(100003), &b);
+//        let d = a.add(&mut sat, &Binary::constant(100));
+//        sat.equal(&d, &b);
+        //sat.greater_than(&c, &b);
+        //sat.less_than_equal(&c, &Binary::constant(100100));
+
+        println!("Solving {:?}", sat);
+        match sat.solve() {
+            Ok(m) => {
+                println!("a={}, b={}, c={}, d={}, e={}", m.value(&a), m.value(&b), m.value(&c), m.value(&d), m.value(&e));
+                //assert_eq!(m.value(&b), 100002);
+            },
+            Err(()) => {
+                panic!()
+            },
+        }
+
     }
 }
