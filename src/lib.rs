@@ -199,7 +199,6 @@ impl Binary {
             v.push(if i%2 == 1 { true.into() } else { false.into() });
             i /= 2;
         }
-        println!("Binary constant {}={:?}", x, v);
         Binary(v)
     }
 
@@ -235,13 +234,7 @@ impl Binary {
         let mut out = Vec::new();
         let mut i = 0;
 
-        println!("Binary add INPUT");
-        for x in &xs {
-          println!("  {:?}", x);
-        }
-
         while xs.len() > 0 {
-            println!("add iter {:?}", xs);
             if i < xs[0].bit {
                 out.push(false.into());
                 i = i+1;
@@ -269,10 +262,6 @@ impl Binary {
             }
         }
 
-        println!("Binary add OUTPUT");
-        for x in &out {
-          println!("  {:?}", x);
-        }
         Binary(out)
     }
 
@@ -947,7 +936,6 @@ impl<'a> ModelOrd for &'a [Bool] {
 
 impl ModelOrd for Binary {
     fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
-        println!("ASSERT BINARY {}", inclusive);
         use std::iter::repeat;
         let len = a.0.len().max(b.0.len());
         let mut a_bits = a.0.iter().cloned().chain(repeat(false.into()))
