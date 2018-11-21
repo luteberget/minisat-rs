@@ -40,6 +40,7 @@
 //! ```rust
 //! extern crate minisat;
 //! use std::iter::once;
+//! use minisat::symbolic::*;
 //! fn main() {
 //!     let mut coloring = minisat::Sat::new();
 //!
@@ -49,7 +50,7 @@
 //!     let n_nodes = 5;
 //!     let edges = vec![(0,1),(1,2),(2,3),(3,4),(3,1),(4,0),(4,2)];
 //!     let colors = (0..n_nodes)
-//!         .map(|_| coloring.new_symbolic(vec![Color::Red, Color::Green, Color::Blue]))
+//!         .map(|_| Symbolic::new(&mut coloring, vec![Color::Red, Color::Green, Color::Blue]))
 //!         .collect::<Vec<_>>();
 //!     for (n1,n2) in edges {
 //!         coloring.not_equal(&colors[n1],&colors[n2]);
@@ -119,6 +120,9 @@ mod model_ord;
 pub use model_eq::*;
 pub use model_ord::*;
 
+/// Symbolic values (see the struct `Symbolic<V>`).
+pub mod symbolic;
+
 use std::convert::From;
 use std::ops::Not;
 
@@ -176,24 +180,6 @@ impl Not for Lit {
     }
 }
 
-pub struct Symbolic<T>(Vec<(Bool, T)>);
-
-impl<T> Symbolic<T> {
-    pub fn domain(&self) -> impl Iterator<Item = &T> {
-        self.0.iter().map(|(_,t)| t)
-    }
-}
-
-impl<T:Eq> Symbolic<T> {
-    pub fn has_value(&self, a :&T) -> Bool {
-        for (v,x) in &self.0 {
-            if x == a { 
-                return *v;
-            }
-        }
-        false.into()
-    }
-}
 
 #[derive(Debug,Clone)]
 pub struct Binary(Vec<Bool>);
@@ -497,23 +483,6 @@ impl Sat {
     /// Create a new variable.
     pub fn new_lit(&mut self) -> Bool {
         Bool::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
-    }
-
-    pub fn new_symbolic<T>(&mut self, mut xs :Vec<T>) -> Symbolic<T> {
-        if xs.len() == 0 {
-            panic!("Symbolic value cannot be initialized from empty list.");
-        } else if xs.len() == 1 {
-            Symbolic(vec![(true.into(), xs.remove(0))])
-        } else if xs.len() == 1 {
-            let l = self.new_lit();
-            let a = xs.remove(0);
-            let b = xs.remove(0);
-            Symbolic(vec![(l, a), (!l, b)])
-        } else {
-            let lits = xs.iter().map(|_| self.new_lit()).collect::<Vec<_>>();
-            self.assert_exactly_one(lits.iter().cloned());
-            Symbolic(lits.into_iter().zip(xs.into_iter()).collect())
-        }
     }
 
     pub fn new_unary(&mut self, size :usize) -> Unary {
@@ -903,47 +872,6 @@ impl ModelEq for Binary {
     }
 }
 
-impl<V:Ord> ModelEq for Symbolic<V> {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, 
-                       a: &Symbolic<V>, b :&Symbolic<V>)  {
-        for (p,q,x) in stitch(a,b) {
-            match (p,q,x) {
-                (Some(p), None, _) => solver.add_clause(
-                    once(!p).chain(prefix.iter().cloned())),
-                (None, Some(q), _) => solver.add_clause(
-                    once(!q).chain(prefix.iter().cloned())),
-                (Some(p), Some(q), _) => solver.add_clause(
-                    once(!p).chain(once(q)).chain(prefix.iter().cloned())),
-                _ => unreachable!()
-            }
-        }
-    }
-
-    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Bool>, 
-                           a: &Symbolic<V>, b :&Symbolic<V>)  {
-        for (p,q,x) in stitch(a,b) {
-            match (p,q,x) {
-                (Some(p), Some(q), _) => solver.add_clause(
-                    once(!p).chain(once(!q)).chain(prefix.iter().cloned())),
-                _ => {},
-            }
-        }
-    }
-}
-
-fn stitch<'a, V:Ord>(a :&'a Symbolic<V>, b:&'a Symbolic<V>) -> impl Iterator<Item = (Option<Bool>, Option<Bool>, &'a V)> {
-    use itertools::Itertools;
-    let mut v : Vec<(Option<Bool>, Option<Bool>, &'a V)> = 
-        a.0.iter().map(|(v,x)| (Some(*v), None,    x)).chain(
-        b.0.iter().map(|(v,x)| (None,     Some(*v),x))).collect();
-    v.sort_by(|(_,_,x),(_,_,y)| x.cmp(y));
-    v.into_iter().coalesce(|(a,b,x),(c,d,y)| 
-                           if x == y { 
-                               Ok((a.or(c), b.or(d), x)) 
-                           } else { 
-                               Err(((a,b,x),(c,d,y))) 
-                           })
-}
 
 impl<'a> ModelValue<'a> for Bool {
     type T = bool;
@@ -963,19 +891,6 @@ impl<'a> ModelValue<'a> for Bool {
                 }
             }
         }
-    }
-}
-
-impl<'a,V :'a> ModelValue<'a> for Symbolic<V> {
-    type T = &'a V;
-
-    fn value(&'a self, m :&'a Model) -> Self::T {
-        for (v,x) in &self.0 {
-            if m.value(v) {
-                return x;
-            }
-        }
-        unreachable!()
     }
 }
 
@@ -1114,6 +1029,7 @@ mod tests {
 
     #[test]
     fn graph_color() {
+        use symbolic::*;
         let mut coloring = Sat::new();
 
         #[derive(PartialEq, Eq, Debug, PartialOrd, Ord)]
@@ -1122,7 +1038,7 @@ mod tests {
         let n_nodes = 5;
         let edges = vec![(0,1),(1,2),(2,3),(3,4),(3,1),(4,0),(4,2)];
         let colors = (0..n_nodes)
-            .map(|_| coloring.new_symbolic(vec![Color::Red, Color::Green, Color::Blue]))
+            .map(|_| Symbolic::new(&mut coloring, vec![Color::Red, Color::Green, Color::Blue]))
             .collect::<Vec<_>>();
         for (n1,n2) in edges {
             coloring.not_equal(&colors[n1],&colors[n2]);
