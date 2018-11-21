@@ -95,6 +95,14 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+//  #![cfg_attr(test, feature(plugin))]
+ //#![cfg_attr(test, plugin(quickcheck_macros))]
+
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
+
 extern crate itertools;
 pub mod sys {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -1118,6 +1126,8 @@ impl<'a> Model<'a> {
 mod tests {
     use super::*;
 
+
+
     #[test]
     fn sat() {
         let mut sat = Sat::new();
@@ -1258,15 +1268,16 @@ mod tests {
     #[test]
     fn factorization_unary() {
         let mut sat = Sat::new();
-        let a = sat.new_unary(64);
-        let b = sat.new_unary(64);
+        let a = sat.new_unary(20);
+        let b = sat.new_unary(20);
         let c = a.mul(&mut sat, &b);
-        sat.equal(&c, &Unary::constant(529));
+        sat.equal(&c, &Unary::constant(209));
 
         println!("Solving {:?}", sat);
         match sat.solve() {
             Ok(model) => {
-                println!("{}*{}=529", model.value(&a), model.value(&b));
+                println!("{}*{}=209", model.value(&a), model.value(&b));
+                assert_eq!(model.value(&a)*model.value(&b), 209);
             },
             Err(()) => {
                 println!("No solution.");
@@ -1326,5 +1337,143 @@ mod tests {
             },
         }
 
+    }
+
+    quickcheck! {
+        fn const_binary_eq(xs :Vec<usize>) -> bool {
+            let mut sat = Sat::new();
+            let xs = xs.into_iter().map(|x| {
+                println!("CONST BINARY EQ {}", x);
+                let b = sat.new_binary(x);
+                sat.equal(&b, &Binary::constant(x));
+                (x,b)
+            }).collect::<Vec<_>>();
+
+            match sat.solve() {
+                Ok(m) => {
+                    for (x,b) in xs {
+                        assert_eq!(x, m.value(&b));
+                    }
+                },
+                _ => panic!(),
+            };
+            true
+        }
+    }
+
+    quickcheck! {
+        fn xor_odd_constant(lits :Vec<bool>) -> bool {
+            // The xor literal function returns the odd parity bit
+            // which is a constant when the input is a list of constants
+            let mut sat = Sat::new();
+            let f = sat.xor_literal(lits.iter().map(|_| false.into())) == false.into();
+            let t = sat.xor_literal(lits.iter().map(|_| true.into())) == (lits.len() % 2 == 1).into();
+            t && f
+        }
+    }
+
+    quickcheck!  {
+        fn xor_literal_lits(lits :Vec<bool>) -> bool {
+            let mut sat = Sat::new();
+            if lits.len() == 0 { return true; }
+            let lits = lits.iter().map(|_| sat.new_lit()).collect::<Vec<_>>();
+            let xor = sat.xor_literal(lits.iter().cloned());
+            sat.add_clause(vec![xor]); // assert odd parity of list of literals
+
+            match sat.solve() {
+                Ok(m) => {
+                    let model_parity = lits.iter().map(|x| {
+                        if m.value(x) { 1usize } else {0usize }
+                    }).sum::<usize>() % 2;
+                    assert_eq!(model_parity, 1);
+                },
+                Err(()) => panic!(),
+            };
+            true
+        }
+    }
+
+    quickcheck! {
+        fn xor_literal(lits :Vec<bool>, consts :Vec<bool>) -> bool {
+            let mut sat = Sat::new();
+            let lits = lits.iter().map(|_| sat.new_lit()).collect::<Vec<_>>();
+            let expr = consts.iter().map(|x| (*x).into()).chain(lits.into_iter()).collect::<Vec<_>>();
+            let xor = sat.xor_literal(expr.iter().cloned());
+
+            match sat.solve() {
+                Ok(m) => {
+                    let model_parity = expr.iter().map(|x| {
+                        println!(" {:?} -> {:?}", x, m.value(x));
+                        if m.value(x) { 1usize } else { 0usize }
+                    })
+                        .sum::<usize>() % 2 == 1;
+                    assert_eq!(model_parity, m.value(&xor));
+                }
+                Err(()) => panic!(),
+            };
+            true
+        }
+    }
+
+    quickcheck! {
+        fn parity(xs :Vec<bool>) -> bool {
+            let mut sat = Sat::new();
+            let parity = xs.iter().map(|x| if *x { 1usize } else { 0usize }).sum::<usize>() % 2 == 1;
+            let lits = xs.iter().map(|x| {
+                let lit = sat.new_lit();
+                sat.equal(&lit, &(*x).into());
+                lit
+            }).collect::<Vec<_>>();
+            sat.assert_parity(lits, parity);
+
+            match sat.solve() {
+                Err(()) => panic!(),
+                _ => {},
+            };
+            true
+        }
+    }
+
+    quickcheck! {
+        fn const_bool_equal(xs :Vec<bool>) -> bool {
+            let mut sat = Sat::new();
+            let xs = xs.into_iter().map(|x| {
+                let y = sat.new_lit();
+                sat.equal(&y,&x.into());
+                (x,y)
+            }).collect::<Vec<_>>();
+
+            match sat.solve() {
+                Ok(m) => {
+                    for (x,y) in xs {
+                        assert_eq!(x, m.value(&y));
+                    }
+                },
+                _ => panic!(),
+            };
+            true
+        }
+    }
+
+    quickcheck! {
+        fn const_bool_addclause(xs :Vec<bool>) -> bool {
+            let mut sat = Sat::new();
+            let xs = xs.into_iter().map(|x| {
+                let y = sat.new_lit();
+                sat.add_clause(vec![y, (!x).into()]); // x -> y == y, !x
+                sat.add_clause(vec![x.into(), !y]); // y -> x == x, !y
+                (x,y)
+            }).collect::<Vec<_>>();
+
+            match sat.solve() {
+                Ok(m) => {
+                    for (x,y) in xs {
+                        assert_eq!(x, m.value(&y));
+                    }
+                },
+                _ => panic!(),
+            };
+            true
+        }
     }
 }

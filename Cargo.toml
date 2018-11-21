@@ -12,6 +12,8 @@ license="MIT"
 
 [dependencies]
 itertools = "0.7"
+[dev-dependencies]
+quickcheck="*"
 [build-dependencies]
 cc="1"
 bindgen="0.42"
