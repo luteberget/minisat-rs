@@ -521,8 +521,12 @@ impl Sat {
     }
 
     pub fn new_binary(&mut self, size :usize) -> Binary {
-        let size = ((size as f64).log(2.0)+0.5) as u32;
-        let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
+        let (mut bits, mut n) = (0,size);
+        while n > 0 {
+            bits += 1;
+            n /= 2;
+        }
+        let lits = (0..bits).map(|_| self.new_lit()).collect::<Vec<_>>();
         Binary(lits)
     }
 
