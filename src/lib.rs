@@ -698,6 +698,8 @@ impl Sat {
         }
     }
 
+    /// Returns a `Bool` which represents the odd parity bit for the 
+    /// given sequence of `Bool` values.
     pub fn xor_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         use std::collections::HashSet;
         let mut posneg = [HashSet::new(), HashSet::new()];
