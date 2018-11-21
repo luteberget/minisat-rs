@@ -120,6 +120,9 @@ mod model_ord;
 pub use model_eq::*;
 pub use model_ord::*;
 
+/// Unary encoding of non-negative integers (see `Unary`).
+pub mod unary;
+
 /// Symbolic values (see the struct `Symbolic<V>`).
 pub mod symbolic;
 
@@ -312,162 +315,6 @@ impl Binary {
 
 
 
-#[derive(Debug,Clone)]
-pub struct Unary(Vec<Bool>);
-
-impl Unary {
-    pub fn constant(n :usize) -> Self {
-        Unary(vec![true.into(); n])
-    }
-
-    pub fn succ(&self) -> Unary {
-        Unary(once(Bool::Const(true)).chain(self.0.iter().cloned()).collect())
-    }
-
-    pub fn pred(&self) -> Unary {
-        if self.0.len() == 0 {
-            Unary::constant(0)
-        } else {
-            Unary(self.0.iter().cloned().skip(1).collect())
-        }
-    }
-
-    pub fn invert(&self) -> Self {
-        let mut v = self.0.clone();
-        v.reverse();
-        for x in &mut v { *x = !*x; }
-        Unary(v)
-    }
-
-    pub fn gt_const(&self, x :isize) -> Bool {
-        if x < 0 {
-            Bool::Const(true)
-        } else if x > self.0.len() as isize {
-            Bool::Const(false)
-        } else {
-            (self.0)[x as usize]
-        }
-    }
-
-    pub fn lt_const(&self, x :isize) -> Bool {
-        !(self.gte_const(x))
-    }
-
-    pub fn lte_const(&self, x :isize) -> Bool {
-        self.lt_const(x+1)
-    }
-
-    pub fn gte_const(&self, x :isize) -> Bool {
-        self.gt_const(x-1)
-    }
-
-    pub fn mul_const(&self, c :usize) -> Unary {
-        use std::iter::repeat;
-        Unary(self.0.iter().flat_map(|i| repeat(i).take(c)).cloned().collect())
-    }
-
-    pub fn div_const(&self, c :usize) -> Unary {
-        assert!(c > 0);
-        Unary(self.0.chunks(c).flat_map(|x| x.get(c-1)).cloned().collect())
-    }
-
-    // pub fn mod_const(&self, c :usize) -> Unary {
-    //     unimplemented!()
-    // }
-
-    pub fn bound(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn add_const(&self, c :usize) -> Unary {
-        use std::iter::repeat;
-        Unary(repeat(Bool::Const(true)).take(c).chain(self.0.iter().cloned()).collect())
-    }
-
-    pub fn add(&self, sat :&mut Sat, other :&Unary) -> Unary {
-        self.add_truncate(sat, other, std::usize::MAX)
-    }
-
-    pub fn truncate(&self, bound :usize) -> Unary {
-        Unary(self.0.iter().take(bound).cloned().collect())
-    }
-
-    pub fn add_truncate(&self, sat :&mut Sat, other :&Unary, bound :usize) -> Unary {
-        Unary(Self::merge(sat, bound, self.0.clone(), other.0.clone()))
-    }
-
-    fn merge(sat :&mut Sat, bound :usize, mut a :Vec<Bool>, mut b :Vec<Bool>) -> Vec<Bool> {
-        use itertools::Itertools;
-        if a.len() == 0 {
-            b.truncate(bound);
-            b
-        } else if b.len() == 0 {
-            a.truncate(bound);
-            a
-        } else if bound == 0 && a.len() == 1 && b.len() == 1 {
-            Vec::new()
-        } else if bound == 1 && a.len() == 1 && b.len() == 1 {
-            let fst = sat.or_literal(once(a[0]).chain(once(b[0])));
-            vec![fst]
-        } else if bound > 1 && a.len() == 1 && b.len() == 1 {
-            let fst = sat.or_literal( once(a[0]).chain(once(b[0])));
-            let snd = sat.and_literal(once(a[0]).chain(once(b[0])));
-            vec![fst,snd]
-        } else {
-            while a.len() < b.len()/2*2 { a.push(Bool::Const(false)); }
-            while b.len() < a.len()/2*2 { b.push(Bool::Const(false)); }
-            let firsts  = Self::merge(sat, bound, a.iter().cloned().step_by(2).collect(),
-                                                  b.iter().cloned().step_by(2).collect());
-            let seconds = Self::merge(sat, bound, a.iter().cloned().skip(1).step_by(2).collect(),
-                                                  b.iter().cloned().skip(1).step_by(2).collect());
-            let interleaved = firsts.into_iter().interleave(seconds.into_iter()).collect::<Vec<_>>();
-
-            let mut v = Vec::new();
-            v.push(interleaved[0]);
-            for x in interleaved[1..].chunks(2) {
-                if let [a,b] = x {
-                    v.extend(Self::merge(sat, bound, vec![*a], vec![*b]));
-                }
-            }
-            v.push(*interleaved.last().unwrap());
-            v.truncate(bound);
-            v
-        }
-    }
-
-    pub fn sum(sat :&mut Sat, xs :Vec<Unary>) -> Unary {
-        Self::sum_truncate(sat, xs, std::usize::MAX)
-    }
-
-    pub fn sum_truncate(sat :&mut Sat, mut xs :Vec<Unary>, bound :usize) -> Unary {
-        if xs.len() == 0 {
-            Unary::constant(0)
-        } else if xs.len() == 1 {
-            xs[0].clone()
-        } else {
-            xs.sort_by_key(|x| -(x.0.len() as isize));
-            let a = xs.pop().unwrap();
-            let b = xs.pop().unwrap();
-            xs.push(a.add_truncate(sat, &b, bound));
-            Self::sum_truncate(sat, xs, bound)
-        }
-    }
-
-    pub fn mul_digit(&self, sat :&mut Sat, other :Bool) -> Unary {
-        Unary(self.0.iter().cloned().map(|x| 
-                 sat.and_literal(once(x).chain(once(other)))).collect())
-    }
-
-    pub fn mul(&self, sat :&mut Sat, other :&Unary) -> Unary {
-        if self.bound() > other.bound() {
-            other.mul(sat,self)
-        } else {
-            let terms = self.0.iter().cloned().map(|x|
-                            other.mul_digit(sat, x)).collect();
-            Unary::sum(sat, terms)
-        }
-    }
-}
 
 impl Sat {
     /// Create a new SAT instance.
@@ -485,14 +332,6 @@ impl Sat {
         Bool::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
     }
 
-    pub fn new_unary(&mut self, size :usize) -> Unary {
-        let lits = (0..size).map(|_| self.new_lit()).collect::<Vec<_>>();
-        for i in 1..size {
-            self.add_clause(once(!lits[i]).chain(once(lits[i-1])));
-        }
-        Unary(lits)
-    }
-
     pub fn new_binary(&mut self, size :usize) -> Binary {
         let (mut bits, mut n) = (0,size);
         while n > 0 {
@@ -501,15 +340,6 @@ impl Sat {
         }
         let lits = (0..bits).map(|_| self.new_lit()).collect::<Vec<_>>();
         Binary(lits)
-    }
-
-    pub fn bool_to_unary(&mut self, digit :Bool) -> Unary {
-        Unary(vec![digit])
-    }
-
-    pub fn count<I: IntoIterator<Item = Bool>>(&mut self, lits :I) -> Unary {
-        let lits = lits.into_iter().map(|x| self.bool_to_unary(x)).collect();
-        Unary::sum(self, lits)
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
@@ -790,26 +620,6 @@ pub trait ModelValue<'a> {
 
 use std::iter::{once,empty};
 
-impl ModelOrd for Unary {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Unary, b :&Unary) {
-        if !inclusive {
-            Self::assert_less_or(solver, prefix, true, &a.succ(), b);
-        } else {
-            for i in 0..(a.0.len()) {
-                if i < b.0.len() {
-                    solver.add_clause(prefix.iter().cloned()
-                                      .chain(once(!(a.0)[i]))
-                                      .chain(once((b.0)[i])));
-                } else {
-                    solver.add_clause(prefix.iter().cloned()
-                                      .chain(once(!(a.0)[i])));
-                    break;
-                }
-            }
-        }
-    }
-}
-
 
 impl ModelOrd for Binary {
     fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
@@ -827,19 +637,6 @@ impl ModelOrd for Binary {
     }
 }
 
-
-impl ModelEq for Unary {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a :&Unary, b :&Unary) {
-        solver.less_than_equal_or(prefix.clone(), a, b);
-        solver.less_than_equal_or(prefix, b, a);
-    }
-
-    fn assert_not_equal_or(solver :&mut Sat, prefix :Vec<Bool>, a :&Unary, b :&Unary) {
-        let q = solver.new_lit();
-        solver.less_than_or(prefix.iter().cloned().chain(once(q)),  a, b);
-        solver.less_than_or(prefix.iter().cloned().chain(once(!q)), b, a);
-    }
-}
 
 
 impl ModelEq for Binary {
@@ -894,16 +691,6 @@ impl<'a> ModelValue<'a> for Bool {
     }
 }
 
-impl<'a> ModelValue<'a> for Unary {
-    type T = usize;
-    fn value(&self, m :&Model) -> usize {
-        self.0.iter().enumerate()
-            .find(|(_i,x)| !m.value(*x))
-            .map(|(v,_)| v)
-            .unwrap_or(self.0.len())
-    }
-}
-
 impl<'a> ModelValue<'a> for Binary {
     type T = usize;
     fn value(&self, m :&Model) -> usize {
@@ -923,6 +710,7 @@ impl<'a> Model<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::unary::*;
 
 
 
@@ -1009,8 +797,8 @@ mod tests {
     #[test]
     fn unary_1() {
         let mut sat = Sat::new();
-        let a = sat.new_unary(100);
-        let b = sat.new_unary(200);
+        let a = Unary::new(&mut sat, 100);
+        let b = Unary::new(&mut sat, 200);
         sat.greater_than(&a, &Unary::constant(50));
         sat.less_than(&a.mul_const(2), &b);
 
@@ -1067,8 +855,8 @@ mod tests {
     #[test]
     fn factorization_unary() {
         let mut sat = Sat::new();
-        let a = sat.new_unary(20);
-        let b = sat.new_unary(20);
+        let a = Unary::new(&mut sat, 20);
+        let b = Unary::new(&mut sat, 20);
         let c = a.mul(&mut sat, &b);
         sat.equal(&c, &Unary::constant(209));
 
