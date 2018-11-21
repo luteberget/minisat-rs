@@ -5,7 +5,7 @@
 //! extern crate minisat;
 //! use std::iter::once;
 //! fn main() {
-//!     let mut sat = minisat::Sat::new();
+//!     let mut sat = minisat::Solver::new();
 //!     let a = sat.new_lit();
 //!     let b = sat.new_lit();
 //!
@@ -42,7 +42,7 @@
 //! use std::iter::once;
 //! use minisat::symbolic::*;
 //! fn main() {
-//!     let mut coloring = minisat::Sat::new();
+//!     let mut coloring = minisat::Solver::new();
 //!
 //!     #[derive(PartialEq, Eq, Debug, PartialOrd, Ord)]
 //!     enum Color { Red, Green, Blue };
@@ -71,13 +71,14 @@
 //! Factorization example:
 //! ```rust
 //! extern crate minisat;
+//! use minisat::{*, binary::*};
 //!
 //! fn main() {
-//!     let mut sat = minisat::Sat::new();
-//!     let a = sat.new_binary(1000);
-//!     let b = sat.new_binary(1000);
+//!     let mut sat = Solver::new();
+//!     let a = Binary::new(&mut sat, 1000);
+//!     let b = Binary::new(&mut sat, 1000);
 //!     let c = a.mul(&mut sat, &b);
-//!     sat.equal(&c, &minisat::Binary::constant(36863));
+//!     sat.equal(&c, &Binary::constant(36863));
 //!
 //!     match sat.solve() {
 //!         Ok(model) => {
@@ -122,6 +123,9 @@ pub use model_ord::*;
 
 /// Unary encoding of non-negative integers (see `Unary`).
 pub mod unary;
+///
+/// Binary encoding of non-negative integers (see `Binary`).
+pub mod binary;
 
 /// Symbolic values (see the struct `Symbolic<V>`).
 pub mod symbolic;
@@ -130,13 +134,13 @@ use std::convert::From;
 use std::ops::Not;
 
 /// The SAT problem instance (also called solver instance).
-pub struct Sat {
+pub struct Solver {
     ptr: *mut minisat_solver_t,
 }
 
 /// Boolean value, either a constant (`Bool::Const`) or
 /// a literal (`Bool::Lit`).  Create values by creating new 
-/// variables (`Sat::new_lit()`) or from a constant boolean (`true.into()`).
+/// variables (`Solver::new_lit()`) or from a constant boolean (`true.into()`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Bool {
   Const(bool),
@@ -184,139 +188,9 @@ impl Not for Lit {
 }
 
 
-#[derive(Debug,Clone)]
-pub struct Binary(Vec<Bool>);
-
-impl Binary {
-    pub fn constant(x :usize) -> Binary {
-        let mut v = Vec::new();
-        let mut i = x;
-        while i > 0 {
-            v.push(if i%2 == 1 { true.into() } else { false.into() });
-            i /= 2;
-        }
-        Binary(v)
-    }
-
-    pub fn invert(&self) -> Binary {
-        Binary(self.0.iter().cloned().map(|x| !x).collect())
-    }
-
-    pub fn from_list<I :IntoIterator<Item = Bool>>(xs :I) -> Binary {
-        Binary(xs.into_iter().collect())
-    }
-
-    pub fn count(&self, solver :&mut Sat) -> Binary {
-        let bins = self.0.iter().cloned().map(|d| Binary::from_list(once(d)))
-            .collect::<Vec<_>>();
-        Binary::add_list(solver, bins.iter())
-    }
-
-    pub fn add(&self, solver :&mut Sat, other :&Binary) -> Binary {
-        Binary::add_list(solver, once(self).chain(once(other)))
-    }
-
-    pub fn add_list<'a, I :IntoIterator<Item = &'a Binary>>(solver :&mut Sat, xs :I) -> Binary {
-        Binary::add_bits(solver, 
-                         xs.into_iter().flat_map(|x| x.0.iter().cloned()
-                                                 .enumerate()).collect())
-    }
-
-    pub fn add_bits(solver :&mut Sat, xs :Vec<(usize,Bool)>) -> Binary {
-        #[derive(Debug)]
-        struct Item { bit :usize, val :Bool };
-        let mut xs = xs.into_iter().map(|(bit,val)| Item { bit, val }).collect::<Vec<_>>();
-        xs.sort_by_key(|&Item { bit, .. }| bit);
-        let mut out = Vec::new();
-        let mut i = 0;
-
-        while xs.len() > 0 {
-            if i < xs[0].bit {
-                out.push(false.into());
-                i = i+1;
-            } else if xs.len() >= 3 && xs[0].bit == xs[1].bit && xs[1].bit == xs[2].bit {
-                let Item { bit     , val: a_val } = xs.remove(0);
-                let Item { bit: _,   val: b_val } = xs.remove(0);
-                let Item { bit: _,   val: c_val } = xs.remove(0);
-                let (v,c) = Binary::full_add(solver, a_val, b_val, c_val);
-                xs.push(Item { bit: bit, val: v });
-                xs.push(Item { bit: bit + 1, val: c });
-                xs.sort_by_key(|&Item { bit, .. }| bit);
-                i = bit;
-            } else if xs.len() >= 2 && xs[0].bit == xs[1].bit {
-                let Item { bit     , val: a_val } = xs.remove(0);
-                let Item { bit: _,   val: b_val } = xs.remove(0);
-                let (v,c) = Binary::full_add(solver, a_val, b_val, false.into());
-                out.push(v);
-                xs.push(Item { bit: bit + 1, val: c });
-                xs.sort_by_key(|&Item { bit, .. }| bit);
-                i = bit + 1;
-            } else {
-                let Item { bit, val } = xs.remove(0);
-                out.push(val);
-                i = bit + 1;
-            }
-        }
-
-        Binary(out)
-    }
-
-    fn full_add(solver: &mut Sat, a :Bool, b :Bool, c :Bool) -> (Bool, Bool) {
-        let v = solver.xor_literal(once(a).chain(once(b)).chain(once(c)));
-        let c = Binary::at_least_two(solver, a, b, c);
-        (v,c)
-    }
-
-    fn at_least_two(solver :&mut Sat, a :Bool, b :Bool, c :Bool) -> Bool {
-        if a == true.into()       { solver.or_literal( once(b).chain(once(c))) }
-        else if b == true.into()  { solver.or_literal( once(a).chain(once(c))) }
-        else if c == true.into()  { solver.or_literal( once(a).chain(once(b))) }
-        else if a == false.into() { solver.and_literal(once(b).chain(once(c))) }
-        else if b == false.into() { solver.and_literal(once(a).chain(once(c))) }
-        else if c == false.into() { solver.and_literal(once(a).chain(once(b))) }
-        else if a == b { a }
-        else if b == c { b }
-        else if a == c { c }
-        else if a == !b { c }
-        else if b == !c { a }
-        else if a == !c { b }
-        else {
-            let v = solver.new_lit();
-            solver.add_clause(once(!a).chain(once(!b)).chain(once(v)));
-            solver.add_clause(once(!a).chain(once(!c)).chain(once(v)));
-            solver.add_clause(once(!b).chain(once(!c)).chain(once(v)));
-            solver.add_clause(once( a).chain(once( b)).chain(once(!v)));
-            solver.add_clause(once( a).chain(once( c)).chain(once(!v)));
-            solver.add_clause(once( b).chain(once( c)).chain(once(!v)));
-            v
-        }
-    }
-
-    pub fn bound(&self) -> usize {
-        (2 as usize).pow(self.0.len() as u32) -1
-    }
-
-    pub fn mul_digit(&self, solver :&mut Sat, y :Bool) -> Binary {
-        Binary(self.0.iter().cloned().map(|x| solver.and_literal(once(x).chain(once(y)))).collect())
-    }
-
-    pub fn mul(&self, solver :&mut Sat, other :&Binary) -> Binary {
-        let mut out = Vec::new();
-        for (i,x) in self.0.iter().cloned().enumerate() {
-            for (j,y) in other.0.iter().cloned().enumerate() {
-                let z = solver.and_literal(once(x).chain(once(y)));
-                out.push(((i+j), z));
-            }
-        }
-
-        Binary::add_bits(solver, out)
-    }
-}
 
 
-
-
-impl Sat {
+impl Solver {
     /// Create a new SAT instance.
     pub fn new() -> Self {
         let ptr = unsafe { minisat_new() };
@@ -324,22 +198,12 @@ impl Sat {
         // "normal solver"??? (cfr. haskell minisat-0.1.2 newSolver)
         unsafe { minisat_eliminate(ptr, 1 as i32) }; 
 
-        Sat { ptr }
+        Solver { ptr }
     }
 
     /// Create a new variable.
     pub fn new_lit(&mut self) -> Bool {
         Bool::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
-    }
-
-    pub fn new_binary(&mut self, size :usize) -> Binary {
-        let (mut bits, mut n) = (0,size);
-        while n > 0 {
-            bits += 1;
-            n /= 2;
-        }
-        let lits = (0..bits).map(|_| self.new_lit()).collect::<Vec<_>>();
-        Binary(lits)
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
@@ -595,14 +459,14 @@ impl Sat {
     }
 }
 
-impl Drop for Sat {
+impl Drop for Solver {
     fn drop(&mut self) {
         unsafe { minisat_delete(self.ptr); }
     }
 }
 
 use std::fmt;
-impl fmt::Debug for Sat {
+impl fmt::Debug for Solver {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SAT instance (MiniSat v2.1.0) {{ variables: {}, clauses: {} }}", self.num_vars(), self.num_clauses())
     }
@@ -611,7 +475,7 @@ impl fmt::Debug for Sat {
 
 /// A model, in the logic sense, contains and assignments to each variable
 /// in the SAT instance which satisfies the clauses added to the problem.
-pub struct Model<'a>(&'a mut Sat);
+pub struct Model<'a>(&'a mut Solver);
 
 pub trait ModelValue<'a> {
     type T;
@@ -621,53 +485,6 @@ pub trait ModelValue<'a> {
 use std::iter::{once,empty};
 
 
-impl ModelOrd for Binary {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Binary, b:&Binary) {
-        use std::iter::repeat;
-        let len = a.0.len().max(b.0.len());
-        let mut a_bits = a.0.iter().cloned().chain(repeat(false.into()))
-            .take(len).collect::<Vec<_>>();
-        a_bits.reverse();
-        let mut b_bits = b.0.iter().cloned().chain(repeat(false.into()))
-            .take(len).collect::<Vec<_>>();
-        b_bits.reverse();
-        <&[Bool]>::assert_less_or(solver, prefix, inclusive, 
-                                  &&a_bits.as_slice(), 
-                                  &&b_bits.as_slice());
-    }
-}
-
-
-
-impl ModelEq for Binary {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a :&Binary, b :&Binary) {
-        let mut i = 0;
-        while i < a.0.len() || i < b.0.len() {
-            Bool::assert_equal_or(solver, prefix.clone(), a.0.get(i).unwrap_or(&false.into()),
-                                                  b.0.get(i).unwrap_or(&false.into()));
-            i += 1;
-        }
-    }
-
-    fn assert_not_equal_or(solver :&mut Sat, mut prefix: Vec<Bool>, a :&Binary, b :&Binary) {
-        let mut i = 0;
-        let mut q = solver.new_lit();
-        prefix.push(q);
-
-        while i < a.0.len() || i < b.0.len() {
-            let ai = a.0.get(i).cloned().unwrap_or(false.into());
-            let bi = b.0.get(i).cloned().unwrap_or(false.into());
-
-            Bool::assert_not_equal_or(solver, prefix.clone(), &ai, &bi);
-            prefix.clear();
-            prefix.push(!q);
-
-            q = solver.new_lit();
-            i += 1;
-        }
-        solver.add_clause(prefix);
-    }
-}
 
 
 impl<'a> ModelValue<'a> for Bool {
@@ -691,15 +508,6 @@ impl<'a> ModelValue<'a> for Bool {
     }
 }
 
-impl<'a> ModelValue<'a> for Binary {
-    type T = usize;
-    fn value(&self, m :&Model) -> usize {
-        self.0.iter().enumerate()
-            .map(|(i,x)| if m.value(x) { (2 as usize).pow(i as u32) } else { 0 })
-            .sum()
-    }
-}
-
 impl<'a> Model<'a> {
     pub fn value<V, T :ModelValue<'a, T=V>>(&'a self, v :&'a T) -> V {
         v.value(self)
@@ -711,12 +519,13 @@ impl<'a> Model<'a> {
 mod tests {
     use super::*;
     use super::unary::*;
+    use super::binary::*;
 
 
 
     #[test]
     fn sat() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = sat.new_lit();
         let b = sat.new_lit();
         //sat.add_clause(&[a,b]);
@@ -732,7 +541,7 @@ mod tests {
 
     #[test]
     fn unsat() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = sat.new_lit();
         let b = sat.new_lit();
         //sat.add_clause(&[a]);
@@ -748,14 +557,14 @@ mod tests {
     #[test]
     fn unsat2() {
         use std::iter::empty;
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         sat.add_clause(empty());
         assert_eq!(sat.solve().is_err(), true);
     }
 
     #[test]
     fn sat2() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = sat.new_lit();
         assert_eq!(sat.solve().is_err(), false);
         assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), false);
@@ -768,7 +577,7 @@ mod tests {
 
     #[test]
     fn xor() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = sat.new_lit();
         let b = sat.new_lit();
         let c = sat.new_lit();
@@ -796,7 +605,7 @@ mod tests {
 
     #[test]
     fn unary_1() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = Unary::new(&mut sat, 100);
         let b = Unary::new(&mut sat, 200);
         sat.greater_than(&a, &Unary::constant(50));
@@ -818,7 +627,7 @@ mod tests {
     #[test]
     fn graph_color() {
         use symbolic::*;
-        let mut coloring = Sat::new();
+        let mut coloring = Solver::new();
 
         #[derive(PartialEq, Eq, Debug, PartialOrd, Ord)]
         enum Color { Red, Green, Blue };
@@ -854,7 +663,7 @@ mod tests {
 
     #[test]
     fn factorization_unary() {
-        let mut sat = Sat::new();
+        let mut sat = Solver::new();
         let a = Unary::new(&mut sat, 20);
         let b = Unary::new(&mut sat, 20);
         let c = a.mul(&mut sat, &b);
@@ -874,9 +683,9 @@ mod tests {
 
     #[test]
     fn factorization_binary() {
-        let mut sat = Sat::new();
-        let a = sat.new_binary(1000);
-        let b = sat.new_binary(1000);
+        let mut sat = Solver::new();
+        let a = Binary::new(&mut sat, 1000); 
+        let b = Binary::new(&mut sat, 1000);
         let c = a.mul(&mut sat, &b);
         sat.equal(&c, &Binary::constant(36863));
 
@@ -893,10 +702,10 @@ mod tests {
 
     #[test]
     fn binary_ord() {
-        let mut sat = Sat::new();
-        let a = sat.new_binary(2_usize.pow(16));
-        let b = sat.new_binary(123123123123);
-        let c = sat.new_binary(1231231231239);
+        let mut sat = Solver::new();
+        let a = Binary::new(&mut sat, 2_usize.pow(16));
+        let b = Binary::new(&mut sat, 123123123123);
+        let c = Binary::new(&mut sat, 1231231231239);
 
 
         sat.less_than(&Binary::constant(30), &a);
@@ -928,10 +737,10 @@ mod tests {
 
     quickcheck! {
         fn const_binary_eq(xs :Vec<usize>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let xs = xs.into_iter().map(|x| {
                 println!("CONST BINARY EQ {}", x);
-                let b = sat.new_binary(x);
+                let b = Binary::new(&mut sat, x);
                 sat.equal(&b, &Binary::constant(x));
                 (x,b)
             }).collect::<Vec<_>>();
@@ -952,7 +761,7 @@ mod tests {
         fn xor_odd_constant(lits :Vec<bool>) -> bool {
             // The xor literal function returns the odd parity bit
             // which is a constant when the input is a list of constants
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let f = sat.xor_literal(lits.iter().map(|_| false.into())) == false.into();
             let t = sat.xor_literal(lits.iter().map(|_| true.into())) == (lits.len() % 2 == 1).into();
             t && f
@@ -961,7 +770,7 @@ mod tests {
 
     quickcheck!  {
         fn xor_literal_lits(lits :Vec<bool>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             if lits.len() == 0 { return true; }
             let lits = lits.iter().map(|_| sat.new_lit()).collect::<Vec<_>>();
             let xor = sat.xor_literal(lits.iter().cloned());
@@ -982,7 +791,7 @@ mod tests {
 
     quickcheck! {
         fn xor_literal(lits :Vec<bool>, consts :Vec<bool>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let lits = lits.iter().map(|_| sat.new_lit()).collect::<Vec<_>>();
             let expr = consts.iter().map(|x| (*x).into()).chain(lits.into_iter()).collect::<Vec<_>>();
             let xor = sat.xor_literal(expr.iter().cloned());
@@ -1004,7 +813,7 @@ mod tests {
 
     quickcheck! {
         fn parity(xs :Vec<bool>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let parity = xs.iter().map(|x| if *x { 1usize } else { 0usize }).sum::<usize>() % 2 == 1;
             let lits = xs.iter().map(|x| {
                 let lit = sat.new_lit();
@@ -1023,7 +832,7 @@ mod tests {
 
     quickcheck! {
         fn const_bool_equal(xs :Vec<bool>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let xs = xs.into_iter().map(|x| {
                 let y = sat.new_lit();
                 sat.equal(&y,&x.into());
@@ -1044,7 +853,7 @@ mod tests {
 
     quickcheck! {
         fn const_bool_addclause(xs :Vec<bool>) -> bool {
-            let mut sat = Sat::new();
+            let mut sat = Solver::new();
             let xs = xs.into_iter().map(|x| {
                 let y = sat.new_lit();
                 sat.add_clause(vec![y, (!x).into()]); // x -> y == y, !x

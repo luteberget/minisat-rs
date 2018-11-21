@@ -1,4 +1,4 @@
-use super::{Bool, Sat, Model, ModelValue, ModelEq};
+use super::{Bool, Solver, Model, ModelValue, ModelEq};
 use std::iter::once;
 
 pub struct Symbolic<T>(Vec<(Bool, T)>);
@@ -8,7 +8,7 @@ impl<T> Symbolic<T> {
         self.0.iter().map(|(_,t)| t)
     }
 
-    pub fn new(solver :&mut Sat, mut xs :Vec<T>) -> Symbolic<T> {
+    pub fn new(solver :&mut Solver, mut xs :Vec<T>) -> Symbolic<T> {
         if xs.len() == 0 {
             panic!("Symbolic value cannot be initialized from empty list.");
         } else if xs.len() == 1 {
@@ -39,7 +39,7 @@ impl<T:Eq> Symbolic<T> {
 }
 
 impl<V:Ord> ModelEq for Symbolic<V> {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>,
+    fn assert_equal_or(solver :&mut Solver, prefix: Vec<Bool>,
                        a: &Symbolic<V>, b :&Symbolic<V>)  {
         for (p,q,x) in stitch(a,b) {
             match (p,q,x) {
@@ -54,7 +54,7 @@ impl<V:Ord> ModelEq for Symbolic<V> {
         }
     }
 
-    fn assert_not_equal_or(solver :&mut Sat, prefix: Vec<Bool>,
+    fn assert_not_equal_or(solver :&mut Solver, prefix: Vec<Bool>,
                            a: &Symbolic<V>, b :&Symbolic<V>)  {
         for (p,q,x) in stitch(a,b) {
             match (p,q,x) {

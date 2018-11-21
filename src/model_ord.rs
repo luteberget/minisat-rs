@@ -1,18 +1,18 @@
 use std::iter::once;
-use super::{Bool, Sat};
+use super::{Bool, Solver};
 
 pub trait ModelOrd {
-    fn assert_less_or(solver :&mut Sat, prefix: Vec<Bool>, inclusive: bool, a :&Self, b :&Self) {
+    fn assert_less_or(solver :&mut Solver, prefix: Vec<Bool>, inclusive: bool, a :&Self, b :&Self) {
         Self::assert_less_tuple_or(solver, prefix, inclusive, (a,&()), (b,&()));
     }
 
-    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&Self, b :&Self) -> Bool {
+    fn new_less_lit(solver :&mut Solver, inclusive :bool, a :&Self, b :&Self) -> Bool {
         let q = solver.new_lit();
         Self::assert_less_or(solver, vec![!q], inclusive, a, b);
         q
     }
 
-    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Sat, prefix: Vec<Bool>, inclusive :bool, x_p :(&Self, &B), y_q :(&Self, &B)) {
+    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Solver, prefix: Vec<Bool>, inclusive :bool, x_p :(&Self, &B), y_q :(&Self, &B)) {
         let (x,p) = x_p;
         let (y,q) = y_q;
         match B::new_less_lit(solver, inclusive, p, q) {
@@ -27,23 +27,23 @@ pub trait ModelOrd {
 }
 
 impl ModelOrd for () {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, _a :&(), _b :&()) {
+    fn assert_less_or(solver :&mut Solver, prefix :Vec<Bool>, inclusive :bool, _a :&(), _b :&()) {
         if !inclusive {
             solver.add_clause(prefix);
         }
     }
 
-    fn new_less_lit(_ :&mut Sat, inclusive :bool, _a :&(), _b :&()) -> Bool {
+    fn new_less_lit(_ :&mut Solver, inclusive :bool, _a :&(), _b :&()) -> Bool {
         inclusive.into()
     }
 
-    fn assert_less_tuple_or<B :ModelOrd>(solver :&mut Sat, prefix: Vec<Bool>, inclusive :bool, (_,p) :(&(), &B), (_,q) :(&(), &B)) {
+    fn assert_less_tuple_or<B :ModelOrd>(solver :&mut Solver, prefix: Vec<Bool>, inclusive :bool, (_,p) :(&(), &B), (_,q) :(&(), &B)) {
         B::assert_less_or(solver ,prefix, inclusive, p, q);
     }
 }
 
 impl ModelOrd for Bool {
-    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, (x,p) :(&Bool, &B), (y,q) :(&Bool, &B)) {
+    fn assert_less_tuple_or<B: ModelOrd>(solver :&mut Solver, prefix :Vec<Bool>, inclusive :bool, (x,p) :(&Bool, &B), (y,q) :(&Bool, &B)) {
         if x == y {
             B::assert_less_or(solver, prefix, inclusive, p, q);
         } else {
@@ -55,7 +55,7 @@ impl ModelOrd for Bool {
 
     }
 
-    fn new_less_lit(solver :&mut Sat, inclusive :bool, a :&Bool, b :&Bool) -> Bool {
+    fn new_less_lit(solver :&mut Solver, inclusive :bool, a :&Bool, b :&Bool) -> Bool {
         if a == b {
             inclusive.into()
         } else if  *a == !*b {
@@ -80,7 +80,7 @@ impl ModelOrd for Bool {
 
 
 impl<'a> ModelOrd for &'a [Bool] {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&&[Bool], b :&&[Bool]) {
+    fn assert_less_or(solver :&mut Solver, prefix :Vec<Bool>, inclusive :bool, a :&&[Bool], b :&&[Bool]) {
         if a.len() > 0 && b.len() > 0 {
             Bool::assert_less_tuple_or(solver, prefix, inclusive, (&a[0], &&a[1..]), (&b[0], &&b[1..]));
         } else if a.len() > 0 {

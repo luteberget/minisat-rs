@@ -1,4 +1,4 @@
-use super::{Bool, Sat, Model, ModelEq, ModelOrd, ModelValue};
+use super::{Bool, Solver, Model, ModelEq, ModelOrd, ModelValue};
 use std::iter::once;
 
 #[derive(Debug,Clone)]
@@ -7,7 +7,7 @@ pub struct Unary(Vec<Bool>);
 impl Unary {
 
     /// Create a new non-negative integer using a unary encoding.
-    pub fn new(solver :&mut Sat, size :usize) -> Unary {
+    pub fn new(solver :&mut Solver, size :usize) -> Unary {
         let lits = (0..size).map(|_| solver.new_lit()).collect::<Vec<_>>();
         for i in 1..size {
             solver.add_clause(once(!lits[i]).chain(once(lits[i-1])));
@@ -26,7 +26,7 @@ impl Unary {
     }
 
     /// Unary representation of the number of true literals in set.
-    pub fn count<I: IntoIterator<Item = Bool>>(solver :&mut Sat, lits :I) -> Unary {
+    pub fn count<I: IntoIterator<Item = Bool>>(solver :&mut Solver, lits :I) -> Unary {
         let lits = lits.into_iter().map(|x| Unary::from_bool(x)).collect();
         Unary::sum(solver, lits)
     }
@@ -108,7 +108,7 @@ impl Unary {
     }
 
     /// Add two `Unary` numbers.
-    pub fn add(&self, sat :&mut Sat, other :&Unary) -> Unary {
+    pub fn add(&self, sat :&mut Solver, other :&Unary) -> Unary {
         self.add_truncate(sat, other, std::usize::MAX)
     }
 
@@ -118,11 +118,11 @@ impl Unary {
     }
 
     /// Truncated add.
-    pub fn add_truncate(&self, sat :&mut Sat, other :&Unary, bound :usize) -> Unary {
+    pub fn add_truncate(&self, sat :&mut Solver, other :&Unary, bound :usize) -> Unary {
         Unary(Self::merge(sat, bound, self.0.clone(), other.0.clone()))
     }
 
-    fn merge(sat :&mut Sat, bound :usize, mut a :Vec<Bool>, mut b :Vec<Bool>) -> Vec<Bool> {
+    fn merge(sat :&mut Solver, bound :usize, mut a :Vec<Bool>, mut b :Vec<Bool>) -> Vec<Bool> {
         use itertools::Itertools;
         if a.len() == 0 {
             b.truncate(bound);
@@ -162,12 +162,12 @@ impl Unary {
     }
 
     /// Sum a list of Unary numbers.
-    pub fn sum(sat :&mut Sat, xs :Vec<Unary>) -> Unary {
+    pub fn sum(sat :&mut Solver, xs :Vec<Unary>) -> Unary {
         Self::sum_truncate(sat, xs, std::usize::MAX)
     }
 
     /// Truncated sum.
-    pub fn sum_truncate(sat :&mut Sat, mut xs :Vec<Unary>, bound :usize) -> Unary {
+    pub fn sum_truncate(sat :&mut Solver, mut xs :Vec<Unary>, bound :usize) -> Unary {
         if xs.len() == 0 {
             Unary::constant(0)
         } else if xs.len() == 1 {
@@ -182,13 +182,13 @@ impl Unary {
     }
 
     /// Multiply by a single digit given as a `Bool`.
-    pub fn mul_digit(&self, sat :&mut Sat, other :Bool) -> Unary {
+    pub fn mul_digit(&self, sat :&mut Solver, other :Bool) -> Unary {
         Unary(self.0.iter().cloned().map(|x| 
                  sat.and_literal(once(x).chain(once(other)))).collect())
     }
 
     /// Multiply Unary numbers.
-    pub fn mul(&self, sat :&mut Sat, other :&Unary) -> Unary {
+    pub fn mul(&self, sat :&mut Solver, other :&Unary) -> Unary {
         if self.bound() > other.bound() {
             other.mul(sat,self)
         } else {
@@ -200,7 +200,7 @@ impl Unary {
 }
 
 impl ModelOrd for Unary {
-    fn assert_less_or(solver :&mut Sat, prefix :Vec<Bool>, inclusive :bool, a :&Unary, b :&Unary) {
+    fn assert_less_or(solver :&mut Solver, prefix :Vec<Bool>, inclusive :bool, a :&Unary, b :&Unary) {
         if !inclusive {
             Self::assert_less_or(solver, prefix, true, &a.succ(), b);
         } else {
@@ -220,12 +220,12 @@ impl ModelOrd for Unary {
 }
 
 impl ModelEq for Unary {
-    fn assert_equal_or(solver :&mut Sat, prefix: Vec<Bool>, a :&Unary, b :&Unary) {
+    fn assert_equal_or(solver :&mut Solver, prefix: Vec<Bool>, a :&Unary, b :&Unary) {
         solver.less_than_equal_or(prefix.clone(), a, b);
         solver.less_than_equal_or(prefix, b, a);
     }
 
-    fn assert_not_equal_or(solver :&mut Sat, prefix :Vec<Bool>, a :&Unary, b :&Unary) {
+    fn assert_not_equal_or(solver :&mut Solver, prefix :Vec<Bool>, a :&Unary, b :&Unary) {
         let q = solver.new_lit();
         solver.less_than_or(prefix.iter().cloned().chain(once(q)),  a, b);
         solver.less_than_or(prefix.iter().cloned().chain(once(!q)), b, a);
