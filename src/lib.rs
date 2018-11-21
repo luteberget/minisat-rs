@@ -715,7 +715,7 @@ impl Sat {
         if out.len() == 0 {
             const_parity.into()
         } else if out.len() == 1 {
-            if const_parity { out[0] } else { !out[0] } 
+            if const_parity { !out[0] } else { out[0] } 
         } else {
             let y = self.new_lit();
             self.assert_parity(once(y).chain(out.into_iter()), const_parity);
