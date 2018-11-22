@@ -1,6 +1,7 @@
 use std::iter::once;
 use super::{Bool, Solver};
 
+/// Object that can be compared and constrained by ordering.
 pub trait ModelOrd {
     fn assert_less_or(solver :&mut Solver, prefix: Vec<Bool>, inclusive: bool, a :&Self, b :&Self) {
         Self::assert_less_tuple_or(solver, prefix, inclusive, (a,&()), (b,&()));

@@ -1,6 +1,7 @@
 use super::{Solver, Bool};
 use std::iter::once;
 
+/// Object that can be compared and constrainted for equality.
 pub trait ModelEq {
     fn assert_equal_or(solver: &mut Solver, prefix: Vec<Bool>, a :&Self, b :&Self);
     fn assert_not_equal_or(solver: &mut Solver, prefix: Vec<Bool>, a :&Self, b :&Self);

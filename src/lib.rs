@@ -133,7 +133,7 @@ pub mod symbolic;
 use std::convert::From;
 use std::ops::Not;
 
-/// The SAT problem instance (also called solver instance).
+/// Solver object representing an instance of the boolean satisfiability problem.
 pub struct Solver {
     ptr: *mut minisat_solver_t,
 }
@@ -191,7 +191,7 @@ impl Not for Lit {
 
 
 impl Solver {
-    /// Create a new SAT instance.
+    /// Create a new SAT solver instance.
     pub fn new() -> Self {
         let ptr = unsafe { minisat_new() };
 
@@ -201,7 +201,7 @@ impl Solver {
         Solver { ptr }
     }
 
-    /// Create a new variable.
+    /// Create a fresh boolean variable.
     pub fn new_lit(&mut self) -> Bool {
         Bool::Lit(Lit(self.ptr, unsafe { minisat_newLit(self.ptr) }))
     }
@@ -257,6 +257,7 @@ impl Solver {
         }
     }
 
+    /// Return a literal representing the conjunction of the given booleans.
     pub fn and_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         use std::collections::HashSet;
         let mut lits = Vec::new();
@@ -294,16 +295,12 @@ impl Solver {
         y
     }
 
+    /// Return a literal representing the disjunctino of the given booleans.
     pub fn or_literal<I:IntoIterator<Item = Bool>>(&mut self, xs :I) -> Bool {
         !(self.and_literal(xs.into_iter().map(|x| !x)))
     }
 
-    pub fn assert_exactly_one<I:IntoIterator<Item = Bool>>(&mut self, xs :I) {
-        let xs = xs.into_iter().collect::<Vec<_>>();
-        self.add_clause(xs.iter().cloned());
-        self.assert_at_most_one(xs.iter().cloned());
-    }
-
+    /// Assert that at most one of the given booleans can be true.
     pub fn assert_at_most_one(&mut self, xs: impl Iterator<Item = Bool>) {
         let xs = xs.collect::<Vec<_>>();
         if xs.len() <= 5 {
@@ -320,18 +317,30 @@ impl Solver {
         }
     }
 
+    /// Assert that exactly one of the given booleans is set to true.
+    pub fn assert_exactly_one<I:IntoIterator<Item = Bool>>(&mut self, xs :I) {
+        let xs = xs.into_iter().collect::<Vec<_>>();
+        self.add_clause(xs.iter().cloned());
+        self.assert_at_most_one(xs.iter().cloned());
+    }
+
+    /// Returns a literal representing the truth value of the implication `a -> b`.
     pub fn implies(&mut self, a :Bool, b :Bool) -> Bool {
         self.or_literal(once(!a).chain(once(b)))
     }
 
+    /// Returns a literal representing whether the two given booleans have the same value.
     pub fn equiv(&mut self, a :Bool, b :Bool) -> Bool {
         self.xor_literal(once(!a).chain(once(b)))
     }
 
+    /// Assert that the odd parity bit of the given list of booleans has the given value.
     pub fn assert_parity<I:IntoIterator<Item = Bool>>(&mut self, xs :I, x :bool) {
         self.assert_parity_or(empty(), xs, x);
     }
 
+    /// Assert that the odd parity bit of the given list of booleans has the given value,
+    /// except if any of the values in `prefix` are true.
     pub fn assert_parity_or<I:IntoIterator<Item = Bool>,
                             J:IntoIterator<Item = Bool>>
                                 (&mut self, prefix :I, xs :J, c :bool) {
@@ -397,63 +406,77 @@ impl Solver {
     }
 
 
+    /// Assert the equality of the given objects.
     pub fn equal<T:ModelEq>(&mut self, a :&T, b :&T) {
         ModelEq::assert_equal_or(self, Vec::new(), a, b);
     }
 
+    /// Assert the non-equality of the given objects.
     pub fn not_equal<T:ModelEq>(&mut self, a :&T, b :&T) {
         ModelEq::assert_not_equal_or(self, Vec::new(), a, b);
     }
 
+    /// Assert `a > b`.
     pub fn greater_than<T:ModelOrd>(&mut self, a :&T, b :&T) {
         self.greater_than_or(empty(), a, b);
     }
 
+    /// Assert `a >= b`.
     pub fn greater_than_equal<T:ModelOrd>(&mut self, a :&T, b :&T) {
         self.greater_than_equal_or(empty(), a, b);
     }
 
+    /// Assert `a < b`.
     pub fn less_than<T:ModelOrd>(&mut self, a :&T, b :&T) {
         self.less_than_or(empty(), a, b);
     }
 
+    /// Assert `a <= b`.
     pub fn less_than_equal<T:ModelOrd>(&mut self, a :&T, b :&T) {
         self.less_than_equal_or(empty(), a, b);
     }
 
+    /// Assert `a > b` unless any of the booleans in the given `prefix` are true.
     pub fn greater_than_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
         self.less_than_or(prefix,b,a);
     }
 
+    /// Assert `a >= b` unless any of the booleans in the given `prefix` are true.
     pub fn greater_than_equal_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
         self.less_than_equal_or(prefix,b,a);
     }
 
+    /// Assert `a < b` unless any of the booleans in the given `prefix` are true.
     pub fn less_than_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
         T::assert_less_or(self, prefix.into_iter().collect(), false, a, b);
     }
 
+    /// Assert `a <= b` unless any of the booleans in the given `prefix` are true.
     pub fn less_than_equal_or<T:ModelOrd, I:IntoIterator<Item = Bool>>(&mut self, prefix :I, a :&T, b :&T) {
         T::assert_less_or(self, prefix.into_iter().collect(), true, a, b);
     }
 
-
+    /// Return the number of assignments to variables made in the solver instance.
     pub fn num_assigns(&self) -> isize {
         unsafe { minisat_num_assigns(self.ptr)  as isize }
     }
 
+    /// Return the number of clauses in the solver instance.
     pub fn num_clauses(&self) -> isize {
         unsafe { minisat_num_clauses(self.ptr)  as isize }
     }
 
+    /// Return the number of learnt clauses in the solver instance.
     pub fn num_learnts(&self) -> isize {
         unsafe { minisat_num_learnts(self.ptr)  as isize }
     }
 
+    /// Return the number of variables in the solver instance.
     pub fn num_vars(&self) -> isize {
         unsafe { minisat_num_vars(self.ptr)  as isize }
     }
 
+    /// Return the number of free variables  in the solver instance.
     pub fn num_free_vars(&self) -> isize {
         unsafe { minisat_num_freeVars(self.ptr)  as isize }
     }
@@ -473,10 +496,11 @@ impl fmt::Debug for Solver {
 }
 
 
-/// A model, in the logic sense, contains and assignments to each variable
-/// in the SAT instance which satisfies the clauses added to the problem.
+/// A model of a satisfiable instance, i.e. assignments to variables in the problem satisfying
+/// the asserted constraints.
 pub struct Model<'a>(&'a mut Solver);
 
+/// Object that has a value in the `Model` of a satisfiable instance.
 pub trait ModelValue<'a> {
     type T;
     fn value(&'a self, m: &'a Model) -> Self::T;
