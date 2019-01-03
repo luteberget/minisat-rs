@@ -148,7 +148,7 @@ pub enum Bool {
 }
 
 /// A literal is a boolean variable or its negation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Lit(*mut minisat_solver_t, minisat_Lit);
 
 impl Lit {
