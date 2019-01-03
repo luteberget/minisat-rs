@@ -58,7 +58,7 @@ impl Unary {
     pub fn gt_const(&self, x :isize) -> Bool {
         if x < 0 {
             Bool::Const(true)
-        } else if x > self.0.len() as isize {
+        } else if x >= self.0.len() as isize {
             Bool::Const(false)
         } else {
             (self.0)[x as usize]
