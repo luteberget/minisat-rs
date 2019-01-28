@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 pub fn main() {
     cc::Build::new()
+        .cpp(true)
         .include("lib/minisat")
         .include("lib")
         .file("lib/minisat/minisat/core/Solver.cc")
@@ -30,6 +31,4 @@ pub fn main() {
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 
-
-    println!("cargo:rustc-flags=-l dylib=stdc++");
 }
