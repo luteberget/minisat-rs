@@ -4,5 +4,4 @@
 	branch = master
 [submodule "lib/minisat"]
 	path = lib/minisat
-	url = https://github.com/niklasso/minisat.git
-	branch = master
+	url = https://github.com/agurfinkel/minisat.git
