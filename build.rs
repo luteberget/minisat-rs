@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub fn main() {
     cc::Build::new()
         .include("lib/minisat")
+        .include("lib")
         .file("lib/minisat/minisat/core/Solver.cc")
         .file("lib/minisat/minisat/simp/SimpSolver.cc")
         .file("lib/minisat/minisat/utils/System.cc")
