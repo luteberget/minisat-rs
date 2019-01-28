@@ -15,7 +15,7 @@ pub fn main() {
         .file("lib/minisat-c-bindings/minisat.cc")
         .define("__STDC_LIMIT_MACROS", None)
         .define("__STDC_FORMAT_MACROS", None)
-        .flag("-lz")
+        .include("/usr/local/include")
         .compile("minisat");
 
     let bindings = bindgen::Builder::default()
