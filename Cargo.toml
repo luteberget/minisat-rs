@@ -17,3 +17,6 @@ quickcheck="0.7"
 [build-dependencies]
 cc="1"
 bindgen="0.42"
+
+[features]
+glucose = []

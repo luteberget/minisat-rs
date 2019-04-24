@@ -502,6 +502,17 @@ impl Solver {
     pub fn num_free_vars(&self) -> isize {
         unsafe { minisat_num_freeVars(self.ptr) as isize }
     }
+
+    /// Name and version of SAT solver.
+    pub fn solver_name(&self) -> &'static str {
+        if cfg!(feature = "glucose") {
+            "Glucose v4.1"
+                // https://www.labri.fr/perso/lsimon/glucose/
+        } else {
+            "MiniSAT v2.1.0"
+                // http://minisat.se/
+        }
+    }
 }
 
 impl Drop for Solver {
@@ -516,7 +527,8 @@ use std::fmt;
 impl fmt::Debug for Solver {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-               "SAT instance (MiniSat v2.1.0) {{ variables: {}, clauses: {} }}",
+               "SAT instance ({}) {{ variables: {}, clauses: {} }}",
+               self.solver_name(),
                self.num_vars(),
                self.num_clauses())
     }
@@ -760,6 +772,25 @@ mod tests {
     }
 
     #[test]
+    fn factorization_binary_large() {
+        let mut sat = Solver::new();
+        let a = Binary::new(&mut sat, 10000);
+        let b = Binary::new(&mut sat, 10000);
+        let c = a.mul(&mut sat, &b);
+        sat.equal(&c, &Binary::constant(3686301));
+
+        println!("Solving {:?}", sat);
+        match sat.solve() {
+            Ok(model) => {
+                println!("{}*{}=3686301", model.value(&a), model.value(&b));
+            }
+            Err(()) => {
+                println!("No solution.");
+            }
+        }
+    }
+
+    #[test]
     fn binary_ord() {
         let mut sat = Solver::new();
         let a = Binary::new(&mut sat, 2_usize.pow(16));
@@ -803,7 +834,7 @@ mod tests {
         fn const_binary_eq(xs :Vec<usize>) -> bool {
             let mut sat = Solver::new();
             let xs = xs.into_iter().map(|x| {
-                println!("CONST BINARY EQ {}", x);
+                //println!("CONST BINARY EQ {}", x);
                 let b = Binary::new(&mut sat, x);
                 sat.equal(&b, &Binary::constant(x));
                 (x,b)
@@ -866,7 +897,7 @@ mod tests {
             match sat.solve() {
                 Ok(m) => {
                     let model_parity = expr.iter().map(|x| {
-                        println!(" {:?} -> {:?}", x, m.value(x));
+                        //println!(" {:?} -> {:?}", x, m.value(x));
                         if m.value(x) { 1usize } else { 0usize }
                     })
                         .sum::<usize>() % 2 == 1;

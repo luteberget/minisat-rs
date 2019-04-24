@@ -1,6 +1,7 @@
 use super::{Bool, Solver, Model, ModelValue, ModelEq};
 use std::iter::once;
 
+#[derive(Debug)]
 pub struct Symbolic<T>(Vec<(Bool, T)>);
 
 impl<T> Symbolic<T> {

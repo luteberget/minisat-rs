@@ -1,0 +1,5 @@
+*.o
+*.d
+config.mk
+lib*.so*
+lib*.a
