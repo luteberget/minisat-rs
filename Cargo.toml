@@ -11,9 +11,12 @@ categories=["api-bindings","science"]
 license="MIT"
 
 [dependencies]
-itertools = "0.7"
+itertools = "0.8"
+
 [dev-dependencies]
 quickcheck="0.7"
+sudoku="0.7"
+
 [build-dependencies]
 cc="1"
 bindgen="0.42"

@@ -90,6 +90,65 @@
 //!     }
 //! }
 //! ```
+//!
+//! Sudoku solver, based on the article [Modern SAT solvers: fast, neat and underused (part 1 of N)](https://codingnest.com/modern-sat-solvers-fast-neat-underused-part-1-of-n/). It uses the [sudoku crate](https://docs.rs/sudoku) for generating and displaying boards.
+//!
+//! ```rust
+//! extern crate itertools;
+//! extern crate sudoku;
+//! use itertools::iproduct;
+//! use minisat::Solver;
+//! use minisat::symbolic::Symbolic;
+//! use sudoku::Sudoku;
+//! 
+//! pub fn solve_sudoku(problem: &str) -> Option<String> {
+//!     let mut s = Solver::new();
+//!     let matrix = problem.chars().map(|c| {
+//!         if let Some(i) = c.to_digit(10) {
+//!             Symbolic::new(&mut s, vec![i - 1])
+//!         } else {
+//!             Symbolic::new(&mut s, (0..9).collect())
+//!         }
+//!     }).collect::<Vec<_>>();
+//! 
+//!     for val in 0..9 {
+//!         // Rule 1: no row contains duplicate numbers
+//!         for x in 0..9 {
+//!             s.assert_at_most_one((0..9).map(|y| matrix[9 * y + x].has_value(&val)));
+//!         }
+//!         // Rule 2: no column contains duplicate numbers
+//!         for y in 0..9 {
+//!             s.assert_at_most_one((0..9).map(|x| matrix[9 * y + x].has_value(&val)));
+//!         }
+//!         // Rule 3: no 3x3 box contains duplicate numbers
+//!         for (box_x, box_y) in iproduct!((0..9).step_by(3), (0..9).step_by(3)) {
+//!             s.assert_at_most_one(
+//!                 iproduct!(0..3, 0..3)
+//!                     .map(|(x, y)| matrix[9 * (box_x + x) + (box_y + y)].has_value(&val)),
+//!             );
+//!         }
+//!     }
+//! 
+//!     s.solve().ok().map(|m| {
+//!         matrix.into_iter()
+//!             .map(|v| format!("{}", m.value(&v) + 1))
+//!             .collect()
+//!     })
+//! }
+//! 
+//! 
+//! 
+//! fn main() {
+//!     let puzzle = Sudoku::generate_unique();
+//!     println!("{}", puzzle.display_block());
+//! 
+//!     let solution = solve_sudoku(&puzzle.to_str_line()).expect("Unable to solve puzzle");
+//!     let solved_puzzle = Sudoku::from_str_line(&solution).expect("Unable to parse puzzle");
+//! 
+//!     println!("{}", solved_puzzle.display_block());
+//!     assert!(solved_puzzle.is_solved());
+//! }
+//! ```
 
 
 
