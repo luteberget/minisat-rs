@@ -15,6 +15,8 @@ impl Binary {
         Binary(lits)
     }
 
+    pub fn into_list(self) -> Vec<Bool> { self.0 }
+
     pub fn constant(x: usize) -> Binary {
         let mut v = Vec::new();
         let mut i = x;
