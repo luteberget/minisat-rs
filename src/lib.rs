@@ -890,6 +890,44 @@ mod tests {
     }
 
     quickcheck! {
+        fn binary_comparison(y :usize) -> bool {
+            let mut s = Solver::new();
+            let c = Binary::constant(y);
+            let x = Binary::new(&mut s, 2*y);
+            let lte = s.new_lit();
+            let lt = s.new_lit();
+            let gt = s.new_lit();
+            let gte = s.new_lit();
+
+            s.less_than_equal_or(vec![!lte], &c, &x);
+            s.greater_than_equal_or(vec![!gte], &c, &x);
+            s.less_than_or(vec![!lt], &c, &x);
+            s.greater_than_or(vec![!gt], &c, &x);
+
+            let m1 = s.solve_under_assumptions(vec![lte]).unwrap();
+            if !(y <= m1.value(&x)) { return false; }
+
+            let m2 = s.solve_under_assumptions(vec![gte]).unwrap();
+            if !(y >= m2.value(&x)) { return false; }
+
+            let m5 = s.solve_under_assumptions(vec![gte, lte]).unwrap();
+            if !(y == m5.value(&x)) { return false; }
+
+            if y > 0 {
+                let m3 = s.solve_under_assumptions(vec![lt]).unwrap();
+                if !(y < m3.value(&x)) { return false; }
+
+                let m4 = s.solve_under_assumptions(vec![gt]).unwrap();
+                if !(y > m4.value(&x)) { return false; }
+
+                if !s.solve_under_assumptions(vec![gt, lt]).is_err() { return false; };
+            }
+
+            true
+        }
+    }
+
+    quickcheck! {
         fn const_binary_eq(xs :Vec<usize>) -> bool {
             let mut sat = Solver::new();
             let xs = xs.into_iter().map(|x| {
