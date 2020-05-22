@@ -12,6 +12,7 @@ license="MIT"
 
 [dependencies]
 itertools = "0.8"
+sattrait = { path = "../mysatsolver/sattrait" }
 
 [dev-dependencies]
 quickcheck="0.7"

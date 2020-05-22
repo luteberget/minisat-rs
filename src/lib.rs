@@ -574,6 +574,18 @@ impl Solver {
     }
 }
 
+impl sattrait::Lit for Bool {}
+impl sattrait::SatInstance<Bool> for Solver {
+    fn new_var(&mut self) -> Bool {
+        self.new_lit()
+    }
+
+    fn add_clause(&mut self, c :impl IntoIterator<Item = impl Into<Bool>>) {
+        let c = c.into_iter().map(|l| l.into()).collect::<Vec<Bool>>();
+        self.add_clause(c);
+    }
+}
+
 impl Drop for Solver {
     fn drop(&mut self) {
         unsafe {
