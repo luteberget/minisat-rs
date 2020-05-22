@@ -18,8 +18,8 @@
 //!             assert_eq!(m.value(&a), true);
 //!             assert_eq!(m.value(&b), true);
 //!         },
-//!         Err(()) => panic!("UNSAT"),
-//!     }
+//!         Err(_) => panic!("UNSAT"),
+//!     };
 //! }
 //! ```
 //!
@@ -61,10 +61,10 @@
 //!                 println!("Node {}: {:?}", i, model.value(&colors[i]));
 //!             }
 //!         },
-//!         Err(()) => {
+//!         Err(_) => {
 //!             println!("No solution.");
 //!         }
-//!     }
+//!     };
 //! }
 //! ```
 //!
@@ -84,10 +84,10 @@
 //!         Ok(model) => {
 //!             println!("{}*{}=36863", model.value(&a), model.value(&b));
 //!         },
-//!         Err(()) => {
+//!         Err(_) => {
 //!             println!("No solution.");
 //!         }
-//!     }
+//!     };
 //! }
 //! ```
 //!
@@ -200,7 +200,7 @@ pub struct Solver {
 /// Boolean value, either a constant (`Bool::Const`) or
 /// a literal (`Bool::Lit`).  Create values by creating new
 /// variables (`Solver::new_lit()`) or from a constant boolean (`true.into()`).
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Bool {
     Const(bool),
     Lit(Lit),
@@ -268,6 +268,8 @@ impl Solver {
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
     pub fn add_clause<I: IntoIterator<Item = Bool>>(&mut self, lits: I) {
+        let lits = lits.into_iter().collect::<Vec<Bool>>();
+        //println!("Add clause {:?}", lits);
         unsafe { minisat_addClause_begin(self.ptr) };
         for lit in lits {
             match lit {
@@ -287,7 +289,7 @@ impl Solver {
     /// Solve the SAT instance, returning a solution (`Model`) if the
     /// instance is satisfiable, or returning an `Err(())` if the problem
     /// is unsatisfiable.
-    pub fn solve<'a>(&'a mut self) -> Result<Model<'a>, ()> {
+    pub fn solve<'a>(&'a mut self) -> Result<Model<'a>, Box<dyn Iterator<Item = Bool> +'a>> {
         self.solve_under_assumptions(empty())
     }
 
@@ -299,15 +301,13 @@ impl Solver {
     /// so the result is the same as if each literal was added as a clause, but
     /// the solver object can be re-used afterwards and does then not contain these assumptions.
     /// This interface can be used to build SAT instances incrementally.
-    pub fn solve_under_assumptions<'a, I: IntoIterator<Item = Bool>>(&'a mut self,
-                                                                     lits: I)
-                                                                     -> Result<Model<'a>, ()> {
+    pub fn solve_under_assumptions<'a, I: IntoIterator<Item = Bool>>( &'a mut self, lits: I) -> Result<Model<'a>, Box<dyn Iterator<Item = Bool> + 'a>> {
         unsafe {
             minisat_solve_begin(self.ptr);
         }
         for lit in lits {
             match lit {
-                Bool::Const(false) => return Err(()),
+                Bool::Const(false) => return Err(Box::new(std::iter::empty())),
                 Bool::Const(true) => {}
                 Bool::Lit(Lit(ptr, l)) => {
                     assert_eq!(ptr, self.ptr);
@@ -318,7 +318,11 @@ impl Solver {
             }
         }
         let sat = unsafe { minisat_solve_commit(self.ptr) } > 0;
-        if sat { Ok(Model(self)) } else { Err(()) }
+        if sat { 
+            Ok(Model(self)) 
+        } else { 
+            Err(Box::new(unsafe { self.get_core() }))
+        }
     }
 
     /// Return a literal representing the conjunction of the given booleans.
@@ -572,6 +576,18 @@ impl Solver {
                 // http://minisat.se/
         }
     }
+
+    unsafe fn get_core<'a>(&'a self) -> impl Iterator<Item = Bool> + 'a {
+        self.get_conflict().map(|x| !x)
+    }
+
+    unsafe fn get_conflict<'a>(&'a self) -> impl Iterator<Item = Bool> + 'a {
+        let conflict_len = minisat_conflict_len(self.ptr);
+        let ptr = self.ptr;
+        (0..conflict_len).map(move |i| {
+          Bool::Lit(Lit(ptr, minisat_conflict_nthLit(ptr, i)))
+        })
+    }
 }
 
 impl sattrait::Lit for Bool {}
@@ -759,7 +775,7 @@ mod tests {
                 assert!(bv > av);
             }
             _ => panic!(),
-        }
+        };
     }
 
     #[test]
@@ -788,10 +804,10 @@ mod tests {
                     println!("Node {}: {:?}", i, model.value(&colors[i]));
                 }
             }
-            Err(()) => {
+            Err(_) => {
                 println!("No solution.");
             }
-        }
+        };
     }
 
     #[test]
@@ -817,10 +833,10 @@ mod tests {
                 println!("{}*{}=209", model.value(&a), model.value(&b));
                 assert_eq!(model.value(&a) * model.value(&b), 209);
             }
-            Err(()) => {
+            Err(_) => {
                 println!("No solution.");
             }
-        }
+        };
     }
 
     #[test]
@@ -836,10 +852,10 @@ mod tests {
             Ok(model) => {
                 println!("{}*{}=36863", model.value(&a), model.value(&b));
             }
-            Err(()) => {
+            Err(_) => {
                 println!("No solution.");
             }
-        }
+        };
     }
 
     #[test]
@@ -855,10 +871,10 @@ mod tests {
             Ok(model) => {
                 println!("{}*{}=3686301", model.value(&a), model.value(&b));
             }
-            Err(()) => {
+            Err(_) => {
                 println!("No solution.");
             }
-        }
+        };
     }
 
     #[test]
@@ -894,11 +910,27 @@ mod tests {
                          m.value(&e));
                 // assert_eq!(m.value(&b), 100002);
             }
-            Err(()) => {
+            Err(_) => {
                 panic!()
             }
-        }
+        };
 
+    }
+
+    #[test]
+    fn conflict_set() {
+        let mut s = Solver::new();
+        let x1 = s.new_lit();
+        let x2 = s.new_lit();
+        let x3 = s.new_lit();
+        let x4 = s.new_lit();
+        s.add_clause(vec![!x1, x2]);
+        s.add_clause(vec![!x2, x3]);
+        s.add_clause(vec![!x3, x4]);
+        let res = s.solve_under_assumptions(vec![x1, x2, x3, !x4]);
+        println!("!x4 =  {:?}", !x4);
+        println!(" x1 =  {:?}", x1);
+        println!("res {:?}", res.map(|_| "ok").map_err(|e| e.collect::<Vec<_>>()));
     }
 
     quickcheck! {
@@ -916,20 +948,20 @@ mod tests {
             s.less_than_or(vec![!lt], &c, &x);
             s.greater_than_or(vec![!gt], &c, &x);
 
-            let m1 = s.solve_under_assumptions(vec![lte]).unwrap();
+            let m1 = s.solve_under_assumptions(vec![lte]).ok().unwrap();
             if !(y <= m1.value(&x)) { return false; }
 
-            let m2 = s.solve_under_assumptions(vec![gte]).unwrap();
+            let m2 = s.solve_under_assumptions(vec![gte]).ok().unwrap();
             if !(y >= m2.value(&x)) { return false; }
 
-            let m5 = s.solve_under_assumptions(vec![gte, lte]).unwrap();
+            let m5 = s.solve_under_assumptions(vec![gte, lte]).ok().unwrap();
             if !(y == m5.value(&x)) { return false; }
 
             if y > 0 {
-                let m3 = s.solve_under_assumptions(vec![lt]).unwrap();
+                let m3 = s.solve_under_assumptions(vec![lt]).ok().unwrap();
                 if !(y < m3.value(&x)) { return false; }
 
-                let m4 = s.solve_under_assumptions(vec![gt]).unwrap();
+                let m4 = s.solve_under_assumptions(vec![gt]).ok().unwrap();
                 if !(y > m4.value(&x)) { return false; }
 
                 if !s.solve_under_assumptions(vec![gt, lt]).is_err() { return false; };
@@ -989,7 +1021,7 @@ mod tests {
                     }).sum::<usize>() % 2;
                     assert_eq!(model_parity, 1);
                 },
-                Err(()) => panic!(),
+                Err(_) => panic!(),
             };
             true
         }
@@ -1012,7 +1044,7 @@ mod tests {
                         .sum::<usize>() % 2 == 1;
                     assert_eq!(model_parity, m.value(&xor));
                 }
-                Err(()) => panic!(),
+                Err(_) => panic!(),
             };
             true
         }
@@ -1032,7 +1064,7 @@ mod tests {
             sat.assert_parity(lits, parity);
 
             match sat.solve() {
-                Err(()) => panic!(),
+                Err(_) => panic!(),
                 _ => {},
             };
             true
