@@ -96,9 +96,28 @@ impl Unary {
         Unary(self.0.chunks(c).flat_map(|x| x.get(c - 1)).cloned().collect())
     }
 
-    // pub fn mod_const(&self, c :usize) -> Unary {
-    //     unimplemented!()
-    // }
+    /// Unary number modulo a positive integer constant.
+    pub fn mod_const(&self, s :&mut Solver, c :usize) -> Unary {
+        let n_groups = self.0.len() / c + (self.0.len() % c != 0) as usize;
+        let mut digits = vec![Vec::new(); c-1];
+        for group in 0..n_groups {
+            let base_idx = group * c;
+            let last_lit = self.0.get(base_idx + c - 1).copied().unwrap_or(false.into());
+            for idx in 0..(c-1) {
+                let modified = 
+                    s.and_literal(vec![
+                        !last_lit, 
+                        self.0.get(base_idx + idx).copied().unwrap_or(false.into())]);
+
+                digits[idx].push(modified);
+            }
+        }
+
+        let digits = digits.into_iter().map(|alts| s.or_literal(alts))
+            .collect();
+
+        Unary(digits)
+    }
 
     /// The upper bound.
     pub fn bound(&self) -> usize {

@@ -1069,4 +1069,29 @@ mod tests {
             true
         }
     }
+
+    quickcheck! {
+        fn unary_const_mod(x :usize, c :usize) -> bool {
+            if c <= 1 || c >= x { return true; }
+
+            let mut sat = Solver::new();
+            let number = Unary::new(&mut sat, 2*x);
+            let modulo = number.mod_const(&mut sat, c);
+            
+            let (lo,hi) = (x/2,3*x/2);
+            sat.less_than_equal(&number, &Unary::constant(hi));
+            sat.less_than_equal(&Unary::constant(lo), &number);
+
+            if let Ok(m) = sat.solve() {
+                let n_val = m.value(&number);
+                let mod_val = m.value(&modulo);
+                println!("{} ([{},{}]) % {} == {}", n_val, lo, hi, c, mod_val);
+                assert!(n_val % c == mod_val);
+                true
+            } else {
+                false
+            }
+        }
+    }
+
 }
