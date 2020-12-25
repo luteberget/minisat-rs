@@ -106,8 +106,9 @@ impl Solver {
     /// Solve the SAT instance, returning a solution (`Model`) if the
     /// instance is satisfiable, or returning an `Err(())` if the problem
     /// is unsatisfiable.
-    pub fn solve<'a>(&'a mut self) -> Result<Model<'a>, ()> {
+    pub fn solve(&mut self) -> Result<Model, ()> {
         self.solve_under_assumptions(std::iter::empty())
+            .map_err(|_| ())
     }
 
     /// Solve the SAT instance under given assumptions, returning a solution (`Model`) if the
@@ -118,10 +119,10 @@ impl Solver {
     /// so the result is the same as if each literal was added as a clause, but
     /// the solver object can be re-used afterwards and does then not contain these assumptions.
     /// This interface can be used to build SAT instances incrementally.
-    pub fn solve_under_assumptions<'a, I: IntoIterator<Item = Lit>>(
-        &'a mut self,
+    pub fn solve_under_assumptions<I: IntoIterator<Item = Lit>>(
+        &mut self,
         lits: I,
-    ) -> Result<Model<'a>, ()> {
+    ) -> Result<Model, Conflict> {
         unsafe {
             minisat_solve_begin(self.ptr);
         }
@@ -134,7 +135,7 @@ impl Solver {
         if sat {
             Ok(Model(self))
         } else {
-            Err(())
+            Err(Conflict(self))
         }
     }
 
@@ -175,6 +176,12 @@ impl Solver {
     }
 }
 
+impl Default for Solver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for Solver {
     fn drop(&mut self) {
         unsafe {
@@ -210,6 +217,25 @@ impl<'a> Model<'a> {
         } else {
             unreachable!()
         }
+    }
+}
+
+/// A model of a satisfiable instance, i.e. assignments to variables in the problem satisfying
+/// the asserted constraints.
+pub struct Conflict<'a>(&'a mut Solver);
+
+impl<'a> Conflict<'a> {
+    pub fn iter(&'a self) -> impl Iterator<Item = Lit> + 'a {
+        (0..(self.len())).map(move |i| self.nth(i))
+    }
+    pub fn nth(&self, idx: usize) -> Lit {
+        Lit(unsafe { minisat_conflict_nthLit(self.0.ptr, idx as i32) })
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn len(&self) -> usize {
+        (unsafe { minisat_conflict_len(self.0.ptr) }) as usize
     }
 }
 
