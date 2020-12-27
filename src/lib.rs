@@ -45,11 +45,11 @@ pub struct Solver {
 }
 
 /// A literal is a boolean variable or its negation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Lit(minisat_Lit);
 
 /// A MiniSAT variable.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Var(minisat_Var);
 
 impl Lit {
