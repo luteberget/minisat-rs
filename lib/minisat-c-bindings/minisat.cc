@@ -115,6 +115,7 @@ int          minisat_num_propagations(minisat_solver *s){ return s->propagations
 void         minisat_set_conf_budget (minisat_solver* s, int x){ s->setConfBudget(x); }
 void         minisat_set_prop_budget (minisat_solver* s, int x){ s->setPropBudget(x); }
 void         minisat_no_budget       (minisat_solver* s){ s->budgetOff(); }
+void         minisat_set_rnd_init_act(minisat_solver *s, int b){ s->rnd_init_act = b != 0; }
 
 // Resource constraints:
 void minisat_interrupt(minisat_solver* s) {s->interrupt (); }

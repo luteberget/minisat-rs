@@ -96,7 +96,12 @@ impl Solver {
     pub fn set_polarity(&mut self, l :Lit, p :bool) {
         let (var,pol) = l.var();
 
-        unsafe { minisat_setPolarity(self.ptr, var.0, if (p^pol) { 0 } else { 1 } ); }
+        unsafe { minisat_setPolarity(self.ptr, var.0, if p^pol { 0 } else { 1 } ); }
+    }
+
+    /// Set whether new variables will be initialized with a small random activity.
+    pub fn set_rnd_init_act(&mut self, b :bool) {
+        unsafe { minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 }); }
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).

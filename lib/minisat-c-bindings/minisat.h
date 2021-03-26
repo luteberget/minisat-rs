@@ -118,6 +118,8 @@ int             minisat_num_decisions   (minisat_solver *s);
 int             minisat_num_restarts    (minisat_solver *s);
 int             minisat_num_propagations(minisat_solver *s);
 
+void 		minisat_set_rnd_init_act(minisat_solver *s, int b);
+
 /* TODO
 
     // Mode of operation:
