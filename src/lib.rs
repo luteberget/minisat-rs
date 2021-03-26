@@ -104,6 +104,11 @@ impl Solver {
         unsafe { minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 }); }
     }
 
+    /// Set the solver's random seed.
+    pub fn set_random_seed(&mut self, s :f64) {
+        unsafe { minisat_set_random_seed(self.ptr, s); }
+    }
+
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
     pub fn add_clause<I: IntoIterator<Item = Lit>>(&mut self, lits: I) {
         unsafe { minisat_addClause_begin(self.ptr) };

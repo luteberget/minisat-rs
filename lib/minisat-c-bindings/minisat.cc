@@ -116,6 +116,7 @@ void         minisat_set_conf_budget (minisat_solver* s, int x){ s->setConfBudge
 void         minisat_set_prop_budget (minisat_solver* s, int x){ s->setPropBudget(x); }
 void         minisat_no_budget       (minisat_solver* s){ s->budgetOff(); }
 void         minisat_set_rnd_init_act(minisat_solver *s, int b){ s->rnd_init_act = b != 0; }
+void         minisat_set_random_seed (minisat_solver *s, double x){ s->random_seed = x; }
 
 // Resource constraints:
 void minisat_interrupt(minisat_solver* s) {s->interrupt (); }

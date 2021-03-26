@@ -119,6 +119,7 @@ int             minisat_num_restarts    (minisat_solver *s);
 int             minisat_num_propagations(minisat_solver *s);
 
 void 		minisat_set_rnd_init_act(minisat_solver *s, int b);
+void 		minisat_set_random_seed(minisat_solver *s, double x);
 
 /* TODO
 
