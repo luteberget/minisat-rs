@@ -92,6 +92,13 @@ impl Solver {
         Lit(unsafe { minisat_newLit(self.ptr) })
     }
 
+    /// Set the default polarity of the given literal.
+    pub fn set_polarity(&mut self, l :Lit, p :bool) {
+        let (var,pol) = l.var();
+
+        unsafe { minisat_setPolarity(self.ptr, var.0, if (p^pol) { 0 } else { 1 } ); }
+    }
+
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
     pub fn add_clause<I: IntoIterator<Item = Lit>>(&mut self, lits: I) {
         unsafe { minisat_addClause_begin(self.ptr) };
@@ -294,5 +301,16 @@ mod tests {
         assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), true);
         sat.add_clause(vec![!a]);
         assert_eq!(sat.solve().is_err(), true);
+    }
+
+    #[test]
+    fn set_polarity() {
+        for p in vec![true,false] {
+            let mut sat = Solver::new();
+            let a = sat.new_lit();
+            sat.set_polarity(a, p);
+            let m = sat.solve().unwrap();
+            assert!(m.lit_value(&a) == p);
+        }
     }
 }
