@@ -96,20 +96,26 @@ impl Solver {
     }
 
     /// Set the default polarity of the given literal.
-    pub fn set_polarity(&mut self, l :Lit, p :bool) {
-        let (var,pol) = l.var();
+    pub fn set_polarity(&mut self, l: Lit, p: bool) {
+        let (var, pol) = l.var();
 
-        unsafe { minisat_setPolarity(self.ptr, var.0, if p^pol { 0 } else { 1 } ); }
+        unsafe {
+            minisat_setPolarity(self.ptr, var.0, if p ^ pol { 0 } else { 1 });
+        }
     }
 
     /// Set whether new variables will be initialized with a small random activity.
-    pub fn set_rnd_init_act(&mut self, b :bool) {
-        unsafe { minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 }); }
+    pub fn set_rnd_init_act(&mut self, b: bool) {
+        unsafe {
+            minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 });
+        }
     }
 
     /// Set the solver's random seed.
-    pub fn set_random_seed(&mut self, s :f64) {
-        unsafe { minisat_set_random_seed(self.ptr, s); }
+    pub fn set_random_seed(&mut self, s: f64) {
+        unsafe {
+            minisat_set_random_seed(self.ptr, s);
+        }
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
@@ -323,7 +329,7 @@ mod tests {
 
     #[test]
     fn set_polarity() {
-        for p in vec![true,false] {
+        for p in vec![true, false] {
             let mut sat = Solver::new();
             let a = sat.new_lit();
             sat.set_polarity(a, p);
