@@ -39,6 +39,9 @@ pub mod sys {
 
 use sys::*;
 
+pub mod cnf;
+pub use cnf::Cnf;
+
 /// Solver object representing an instance of the boolean satisfiability problem.
 pub struct Solver {
     ptr: *mut minisat_solver_t,
@@ -118,6 +121,11 @@ impl Solver {
             }
         }
         unsafe { minisat_addClause_commit(self.ptr) };
+    }
+
+    /// Add a CNF clause to the SAT Instance.
+    pub fn add_cnf(&mut self, cnf: Cnf) {
+        cnf.0.into_iter().for_each(|or| self.add_clause(or))
     }
 
     /// Solve the SAT instance, returning a solution (`Model`) if the
@@ -322,5 +330,17 @@ mod tests {
             let m = sat.solve().unwrap();
             assert!(m.lit_value(&a) == p);
         }
+    }
+
+    #[test]
+    fn cnf() {
+        let mut sat = Solver::new();
+        let a = sat.new_lit();
+        let b = sat.new_lit();
+        let c = sat.new_lit();
+        let d = sat.new_lit();
+        sat.add_cnf((a & b) | (c & d));
+        let sol = sat.solve().unwrap();
+        assert!((sol.lit_value(&a) & sol.lit_value(&b)) | (sol.lit_value(&c) & sol.lit_value(&d)));
     }
 }
