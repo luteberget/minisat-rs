@@ -1,4 +1,4 @@
-//! Cumulative Normal Form (CNF) Structure
+//! Conjunctive Normal Form (CNF) Structure
 
 use std::collections::BTreeSet;
 use std::iter::once;
