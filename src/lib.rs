@@ -15,8 +15,8 @@
 //!
 //!     match sat.solve() {
 //!         Ok(m) => {
-//!             assert_eq!(m.lit_value(&a), true);
-//!             assert_eq!(m.lit_value(&b), true);
+//!             assert!(m.lit_value(&a));
+//!             assert!(m.lit_value(&b));
 //!         },
 //!         Err(()) => panic!("UNSAT"),
 //!     }
@@ -85,7 +85,7 @@ impl Solver {
         let ptr = unsafe { minisat_new() };
 
         // "normal solver"??? (cfr. haskell minisat-0.1.2 newSolver)
-        unsafe { minisat_eliminate(ptr, 1 as i32) };
+        unsafe { minisat_eliminate(ptr, 1_i32) };
 
         Solver { ptr }
     }
@@ -303,7 +303,7 @@ mod tests {
         sat.add_clause(once(b));
         sat.add_clause(once(!b));
         let sol = sat.solve();
-        assert_eq!(sol.is_err(), true);
+        assert!(sol.is_err());
     }
 
     #[test]
@@ -311,25 +311,25 @@ mod tests {
         use std::iter::empty;
         let mut sat = Solver::new();
         sat.add_clause(empty());
-        assert_eq!(sat.solve().is_err(), true);
+        assert!(sat.solve().is_err());
     }
 
     #[test]
     fn sat2() {
         let mut sat = Solver::new();
         let a = sat.new_lit();
-        assert_eq!(sat.solve().is_err(), false);
-        assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), false);
+        assert!(!sat.solve().is_err());
+        assert!(!sat.solve_under_assumptions(vec![!a]).is_err());
         sat.add_clause(once(a));
-        assert_eq!(sat.solve().is_err(), false);
-        assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), true);
+        assert!(!sat.solve().is_err());
+        assert!(sat.solve_under_assumptions(vec![!a]).is_err());
         sat.add_clause(vec![!a]);
-        assert_eq!(sat.solve().is_err(), true);
+        assert!(sat.solve().is_err());
     }
 
     #[test]
     fn set_polarity() {
-        for p in vec![true, false] {
+        for p in [true, false] {
             let mut sat = Solver::new();
             let a = sat.new_lit();
             sat.set_polarity(a, p);
