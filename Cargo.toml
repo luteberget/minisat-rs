@@ -12,7 +12,7 @@ license="MIT"
 
 [build-dependencies]
 cc="1"
-bindgen="0.42"
+bindgen="^0.58"
 
 [features]
 glucose = []
