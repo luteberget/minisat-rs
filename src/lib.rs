@@ -15,8 +15,8 @@
 //!
 //!     match sat.solve() {
 //!         Ok(m) => {
-//!             assert_eq!(m.lit_value(&a), true);
-//!             assert_eq!(m.lit_value(&b), true);
+//!             assert!(m.lit_value(&a));
+//!             assert!(m.lit_value(&b));
 //!         },
 //!         Err(()) => panic!("UNSAT"),
 //!     }
@@ -38,6 +38,9 @@ pub mod sys {
 }
 
 use sys::*;
+
+pub mod cnf;
+pub use cnf::Cnf;
 
 /// Solver object representing an instance of the boolean satisfiability problem.
 pub struct Solver {
@@ -82,7 +85,7 @@ impl Solver {
         let ptr = unsafe { minisat_new() };
 
         // "normal solver"??? (cfr. haskell minisat-0.1.2 newSolver)
-        unsafe { minisat_eliminate(ptr, 1 as i32) };
+        unsafe { minisat_eliminate(ptr, 1_i32) };
 
         Solver { ptr }
     }
@@ -93,20 +96,26 @@ impl Solver {
     }
 
     /// Set the default polarity of the given literal.
-    pub fn set_polarity(&mut self, l :Lit, p :bool) {
-        let (var,pol) = l.var();
+    pub fn set_polarity(&mut self, l: Lit, p: bool) {
+        let (var, pol) = l.var();
 
-        unsafe { minisat_setPolarity(self.ptr, var.0, if p^pol { 0 } else { 1 } ); }
+        unsafe {
+            minisat_setPolarity(self.ptr, var.0, if p ^ pol { 0 } else { 1 });
+        }
     }
 
     /// Set whether new variables will be initialized with a small random activity.
-    pub fn set_rnd_init_act(&mut self, b :bool) {
-        unsafe { minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 }); }
+    pub fn set_rnd_init_act(&mut self, b: bool) {
+        unsafe {
+            minisat_set_rnd_init_act(self.ptr, if b { 1 } else { 0 });
+        }
     }
 
     /// Set the solver's random seed.
-    pub fn set_random_seed(&mut self, s :f64) {
-        unsafe { minisat_set_random_seed(self.ptr, s); }
+    pub fn set_random_seed(&mut self, s: f64) {
+        unsafe {
+            minisat_set_random_seed(self.ptr, s);
+        }
     }
 
     /// Add a clause to the SAT instance (assert the disjunction of the given literals).
@@ -118,6 +127,11 @@ impl Solver {
             }
         }
         unsafe { minisat_addClause_commit(self.ptr) };
+    }
+
+    /// Add a CNF clause to the SAT Instance.
+    pub fn add_cnf(&mut self, cnf: Cnf) {
+        cnf.0.into_iter().for_each(|or| self.add_clause(or))
     }
 
     /// Solve the SAT instance, returning a solution (`Model`) if the
@@ -289,7 +303,7 @@ mod tests {
         sat.add_clause(once(b));
         sat.add_clause(once(!b));
         let sol = sat.solve();
-        assert_eq!(sol.is_err(), true);
+        assert!(sol.is_err());
     }
 
     #[test]
@@ -297,30 +311,42 @@ mod tests {
         use std::iter::empty;
         let mut sat = Solver::new();
         sat.add_clause(empty());
-        assert_eq!(sat.solve().is_err(), true);
+        assert!(sat.solve().is_err());
     }
 
     #[test]
     fn sat2() {
         let mut sat = Solver::new();
         let a = sat.new_lit();
-        assert_eq!(sat.solve().is_err(), false);
-        assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), false);
+        assert!(!sat.solve().is_err());
+        assert!(!sat.solve_under_assumptions(vec![!a]).is_err());
         sat.add_clause(once(a));
-        assert_eq!(sat.solve().is_err(), false);
-        assert_eq!(sat.solve_under_assumptions(vec![!a]).is_err(), true);
+        assert!(!sat.solve().is_err());
+        assert!(sat.solve_under_assumptions(vec![!a]).is_err());
         sat.add_clause(vec![!a]);
-        assert_eq!(sat.solve().is_err(), true);
+        assert!(sat.solve().is_err());
     }
 
     #[test]
     fn set_polarity() {
-        for p in vec![true,false] {
+        for p in [true, false] {
             let mut sat = Solver::new();
             let a = sat.new_lit();
             sat.set_polarity(a, p);
             let m = sat.solve().unwrap();
             assert!(m.lit_value(&a) == p);
         }
+    }
+
+    #[test]
+    fn cnf() {
+        let mut sat = Solver::new();
+        let a = sat.new_lit();
+        let b = sat.new_lit();
+        let c = sat.new_lit();
+        let d = sat.new_lit();
+        sat.add_cnf((a & b) | (c & d));
+        let sol = sat.solve().unwrap();
+        assert!((sol.lit_value(&a) & sol.lit_value(&b)) | (sol.lit_value(&c) & sol.lit_value(&d)));
     }
 }
